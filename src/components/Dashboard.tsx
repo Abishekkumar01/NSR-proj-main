@@ -10,9 +10,10 @@ interface DashboardProps {
   assessments: Assessment[];
   studentAssessments?: StudentAssessment[];
   faculty?: any[];
+  onPageChange?: (page: string) => void;
 }
 
-export function Dashboard({ students, courses, assessments, studentAssessments = [], faculty = [] }: DashboardProps) {
+export function Dashboard({ students, courses, assessments, studentAssessments = [], faculty = [], onPageChange }: DashboardProps) {
   // Calculate dynamic statistics
   const stats = useMemo(() => {
     // Ensure we have valid data arrays
@@ -27,6 +28,18 @@ export function Dashboard({ students, courses, assessments, studentAssessments =
         return studentSchool === school.name;
       });
       return { name: school.name, count: schoolStudents.length };
+    });
+
+    // Debug: Log the distribution calculation
+    console.log('School distribution calculation:', {
+      totalStudents: safeStudents.length,
+      schoolStats,
+      sampleStudents: safeStudents.slice(0, 3).map(s => ({
+        id: s.id,
+        department: s.department,
+        school: s.school,
+        calculatedSchool: getSchoolFromDepartment(s.department)
+      }))
     });
 
     const totalStudents = safeStudents.length;
@@ -260,17 +273,26 @@ export function Dashboard({ students, courses, assessments, studentAssessments =
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <button className="p-4 text-left border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-colors">
+          <button 
+            onClick={() => onPageChange?.('students')}
+            className="p-4 text-left border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-colors cursor-pointer"
+          >
             <Users className="w-8 h-8 text-blue-600 mb-2" />
             <h4 className="font-medium text-gray-900">Add Students</h4>
             <p className="text-sm text-gray-600">Import or add new students to the system</p>
           </button>
-          <button className="p-4 text-left border border-gray-200 rounded-lg hover:border-green-300 hover:bg-green-50 transition-colors">
+          <button 
+            onClick={() => onPageChange?.('courses')}
+            className="p-4 text-left border border-gray-200 rounded-lg hover:border-green-300 hover:bg-green-50 transition-colors cursor-pointer"
+          >
             <BookOpen className="w-8 h-8 text-green-600 mb-2" />
             <h4 className="font-medium text-gray-900">Create Course</h4>
             <p className="text-sm text-gray-600">Set up a new course with GA mappings</p>
           </button>
-          <button className="p-4 text-left border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 transition-colors">
+          <button 
+            onClick={() => onPageChange?.('ga-mapping')}
+            className="p-4 text-left border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 transition-colors cursor-pointer"
+          >
             <BarChart3 className="w-8 h-8 text-purple-600 mb-2" />
             <h4 className="font-medium text-gray-900">Enter Marks</h4>
             <p className="text-sm text-gray-600">Record assessment scores and GA mappings</p>
