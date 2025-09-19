@@ -253,7 +253,7 @@ function AppContent() {
   const renderCurrentPage = () => {
     switch (currentPage) {
       case 'dashboard':
-        return <Dashboard students={students} courses={courses} assessments={assessments} />;
+        return <Dashboard students={students} courses={courses} assessments={assessments} studentAssessments={studentAssessments} faculty={faculty} />;
       case 'students':
         return (
           <StudentManagement
@@ -273,7 +273,7 @@ function AppContent() {
             onDeleteCourse={handleDeleteCourse}
           />
         ) : (
-          <Dashboard students={students} courses={courses} assessments={assessments} />
+          <Dashboard students={students} courses={courses} assessments={assessments} studentAssessments={studentAssessments} faculty={faculty} />
         );
       case 'assessments':
         return user.role === 'admin' ? (
@@ -285,7 +285,7 @@ function AppContent() {
             onDeleteAssessment={handleDeleteAssessment}
           />
         ) : (
-          <Dashboard students={students} courses={courses} assessments={assessments} />
+          <Dashboard students={students} courses={courses} assessments={assessments} studentAssessments={studentAssessments} faculty={faculty} />
         );
       case 'ga-mapping':
         return (
@@ -306,7 +306,7 @@ function AppContent() {
             onDeleteFaculty={handleDeleteFaculty}
           />
         ) : (
-          <Dashboard students={students} courses={courses} assessments={assessments} />
+          <Dashboard students={students} courses={courses} assessments={assessments} studentAssessments={studentAssessments} faculty={faculty} />
         );
       case 'reports':
         return user.role === 'admin' ? (
@@ -318,24 +318,24 @@ function AppContent() {
             faculty={faculty}
           />
         ) : (
-          <Dashboard students={students} courses={courses} assessments={assessments} />
+          <Dashboard students={students} courses={courses} assessments={assessments} studentAssessments={studentAssessments} faculty={faculty} />
         );
       case 'data-management':
         return user.role === 'admin' ? (
           <DataManagement />
         ) : (
-          <Dashboard students={students} courses={courses} assessments={assessments} />
+          <Dashboard students={students} courses={courses} assessments={assessments} studentAssessments={studentAssessments} faculty={faculty} />
         );
       case 'profile':
         return user.role === 'faculty' ? (
           <FacultyProfile />
         ) : (
-          <Dashboard students={students} courses={courses} assessments={assessments} />
+          <Dashboard students={students} courses={courses} assessments={assessments} studentAssessments={studentAssessments} faculty={faculty} />
         );
       case 'guide':
         return <SystemGuide />;
       default:
-        return <Dashboard students={students} courses={courses} assessments={assessments} />;
+        return <Dashboard students={students} courses={courses} assessments={assessments} studentAssessments={studentAssessments} faculty={faculty} />;
     }
   };
 

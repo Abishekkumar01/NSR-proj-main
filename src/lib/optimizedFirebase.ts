@@ -124,7 +124,9 @@ export class OptimizedFirebaseService {
 
       // Fallback to Firebase only if no local data
       console.log(`Fetching from Firebase for ${collectionName}`);
-      const snapshot = await getDocs(collection(db, collectionName));
+      // Map collection names to Firebase collection names
+      const firebaseCollectionName = collectionName === 'studentAssessments' ? 'student_assessments' : collectionName;
+      const snapshot = await getDocs(collection(db, firebaseCollectionName));
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       
       // Cache the result
@@ -162,9 +164,11 @@ export class OptimizedFirebaseService {
 
   private async saveToFirebaseAsync(collectionName: string, data: any, id?: string): Promise<void> {
     try {
-      const docRef = id ? doc(db, collectionName, id) : doc(collection(db, collectionName));
+      // Map collection names to Firebase collection names
+      const firebaseCollectionName = collectionName === 'studentAssessments' ? 'student_assessments' : collectionName;
+      const docRef = id ? doc(db, firebaseCollectionName, id) : doc(collection(db, firebaseCollectionName));
       await setDoc(docRef, data, { merge: true });
-      console.log(`Saved to Firebase: ${collectionName}`);
+      console.log(`Saved to Firebase: ${firebaseCollectionName}`);
     } catch (error) {
       console.error(`Firebase save error for ${collectionName}:`, error);
     }
