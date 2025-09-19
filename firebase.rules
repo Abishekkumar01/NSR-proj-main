@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() { return request.auth != null; }
+    function isAdmin() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    function isFaculty() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'faculty';
+    }
+    function isCurrentFaculty(facultyEmail) {
+      return isSignedIn() && request.auth.token.email == facultyEmail;
+    }
+
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (uid == request.auth.uid || isAdmin());
+    }
+
+    match /students/{id} {
+      allow read: if isSignedIn();
+      allow write, delete: if isSignedIn() && (isAdmin() || isFaculty());
+    }
+
+    match /faculty/{id} {
+      // Admin can read/write all faculty records
+      allow read, write, delete: if isAdmin();
+      // Faculty can read their own record
+      allow read: if isSignedIn() && isCurrentFaculty(resource.data.email);
+      // Faculty can read all faculty records for filtering purposes
+      allow read: if isFaculty();
+      // Allow unauthenticated read for email lookup during login
+      allow read: if true;
+    }
+
+    match /courses/{id} {
+      allow read: if isSignedIn();
+      allow write, delete: if isAdmin();
+    }
+
+    match /assessments/{id} {
+      allow read: if isSignedIn();
+      allow write, delete: if isAdmin();
+    }
+
+    match /student_assessments/{id} {
+      allow read: if isSignedIn();
+      allow write, delete: if isAdmin();
+    }
+  }
+}
