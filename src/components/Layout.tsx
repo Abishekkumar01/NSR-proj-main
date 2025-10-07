@@ -30,7 +30,7 @@ export function Layout({ children, currentPage, onPageChange }: LayoutProps) {
     { id: 'students', label: 'Students', icon: Users },
     { id: 'courses', label: 'Courses', icon: BookOpen },
     { id: 'assessments', label: 'Assessments', icon: ClipboardList },
-    { id: 'ga-mapping', label: 'GA Mapping', icon: GraduationCap },
+    { id: 'ga-mapping', label: 'Mapping', icon: GraduationCap },
     { id: 'faculty', label: 'My Faculty', icon: UserCheck },
     { id: 'reports', label: 'Reports', icon: PieChart },
     { id: 'data-management', label: 'Data Management', icon: Database },

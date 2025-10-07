@@ -20,10 +20,16 @@ export interface Course {
   name: string;
   department: string;
   school?: string; // Auto-populated based on department
+  batch?: string;
   semester: number;
   credits: number;
   facultyId: string;
   facultyName: string;
+  // Course-level Program Outcomes catalog and selection
+  poOptions?: { poCode: string; poName: string }[];
+  selectedPOs?: string[]; // array of poCode selected for this course
+  // Course-level Course Outcomes catalog
+  coOptions?: { coCode: string; coName: string }[];
 }
 
 export interface GraduateAttribute {
@@ -55,6 +61,9 @@ export interface Assessment {
   maxMarks: number;
   weightage: number;
   gaMapping: GAMapping[];
+  // Optional mappings for CO and PO
+  coMapping?: COMapping[];
+  poMapping?: POMapping[];
   createdAt: Date;
 }
 
@@ -64,6 +73,20 @@ export interface GAMapping {
   gaName: string;
   weightage: number; // Percentage of this GA in the assessment
   targetLevel: 'Introductory' | 'Intermediate' | 'Advanced';
+}
+
+// Course Outcome mapping (manual entries)
+export interface COMapping {
+  coCode: string; // e.g., CO1, CO2
+  coName: string; // short description/title
+  weightage: number; // Percentage of this CO in the assessment
+}
+
+// Program Outcome mapping (manual entries)
+export interface POMapping {
+  poCode: string; // e.g., PO1, PO2
+  poName: string; // short description/title
+  weightage: number; // Percentage of this PO in the assessment
 }
 
 export interface StudentAssessment {

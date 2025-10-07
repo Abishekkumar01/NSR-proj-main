@@ -6,7 +6,10 @@ export class LocalStorageService {
     COURSES: 'nsr_courses',
     ASSESSMENTS: 'nsr_assessments',
     FACULTY: 'nsr_faculty',
-    STUDENT_ASSESSMENTS: 'nsr_student_assessments'
+    STUDENT_ASSESSMENTS: 'nsr_student_assessments',
+    PO_OPTIONS: 'nsr_po_options', // map of department -> [{poCode, poName}]
+    CO_OPTIONS: 'nsr_co_options', // map of department -> [{coCode, coName}]
+    BATCH_OPTIONS: 'nsr_batch_options_map' // map of department -> string[]
   };
 
   // Course Management
@@ -161,6 +164,7 @@ export class LocalStorageService {
       assessments: this.getAssessments(),
       faculty: this.getFaculty(),
       studentAssessments: this.getStudentAssessments(),
+      batchOptionsMap: this.getBatchOptionsMap(),
       exportDate: new Date().toISOString()
     };
     return JSON.stringify(data, null, 2);
@@ -174,6 +178,7 @@ export class LocalStorageService {
       if (data.assessments) this.saveAssessments(data.assessments);
       if (data.faculty) this.saveFaculty(data.faculty);
       if (data.studentAssessments) this.saveStudentAssessments(data.studentAssessments);
+      if (data.batchOptionsMap) this.saveBatchOptionsMap(data.batchOptionsMap);
       
       return true;
     } catch (error) {
@@ -197,5 +202,95 @@ export class LocalStorageService {
     const percentage = (used / available) * 100;
 
     return { used, available, percentage };
+  }
+
+  // PO Options (global, grouped by department)
+  private static getPOOptionsMap(): Record<string, { poCode: string; poName: string }[]> {
+    try {
+      const data = localStorage.getItem(this.KEYS.PO_OPTIONS);
+      return data ? JSON.parse(data) : {};
+    } catch (e) {
+      console.error('Error loading PO options map:', e);
+      return {};
+    }
+  }
+
+  private static savePOOptionsMap(map: Record<string, { poCode: string; poName: string }[]>): void {
+    try {
+      localStorage.setItem(this.KEYS.PO_OPTIONS, JSON.stringify(map));
+    } catch (e) {
+      console.error('Error saving PO options map:', e);
+    }
+  }
+
+  static getPOOptions(department: string): { poCode: string; poName: string }[] {
+    const map = this.getPOOptionsMap();
+    return map[department] || [];
+  }
+
+  static savePOOptions(department: string, options: { poCode: string; poName: string }[]): void {
+    const map = this.getPOOptionsMap();
+    map[department] = options;
+    this.savePOOptionsMap(map);
+  }
+
+  // CO Options (global, grouped by department)
+  private static getCOOptionsMap(): Record<string, { coCode: string; coName: string }[]> {
+    try {
+      const data = localStorage.getItem(this.KEYS.CO_OPTIONS);
+      return data ? JSON.parse(data) : {};
+    } catch (e) {
+      console.error('Error loading CO options map:', e);
+      return {};
+    }
+  }
+
+  private static saveCOOptionsMap(map: Record<string, { coCode: string; coName: string }[]>): void {
+    try {
+      localStorage.setItem(this.KEYS.CO_OPTIONS, JSON.stringify(map));
+    } catch (e) {
+      console.error('Error saving CO options map:', e);
+    }
+  }
+
+  static getCOOptions(department: string): { coCode: string; coName: string }[] {
+    const map = this.getCOOptionsMap();
+    return map[department] || [];
+  }
+
+  static saveCOOptions(department: string, options: { coCode: string; coName: string }[]): void {
+    const map = this.getCOOptionsMap();
+    map[department] = options;
+    this.saveCOOptionsMap(map);
+  }
+
+  // Batch options (grouped by department)
+  private static getBatchOptionsMap(): Record<string, string[]> {
+    try {
+      const data = localStorage.getItem(this.KEYS.BATCH_OPTIONS);
+      return data ? JSON.parse(data) : {};
+    } catch (e) {
+      console.error('Error loading batch options map:', e);
+      return {};
+    }
+  }
+
+  private static saveBatchOptionsMap(map: Record<string, string[]>): void {
+    try {
+      localStorage.setItem(this.KEYS.BATCH_OPTIONS, JSON.stringify(map));
+    } catch (e) {
+      console.error('Error saving batch options map:', e);
+    }
+  }
+
+  static getBatchOptions(department: string): string[] {
+    const map = this.getBatchOptionsMap();
+    return map[department] || [];
+  }
+
+  static saveBatchOptions(department: string, options: string[]): void {
+    const map = this.getBatchOptionsMap();
+    map[department] = options;
+    this.saveBatchOptionsMap(map);
   }
 }
