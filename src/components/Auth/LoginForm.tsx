@@ -38,7 +38,7 @@ export function LoginForm({ variant = 'faculty', onVariantChange }: LoginFormPro
           <div className="bg-blue-600 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
             <GraduationCap className="w-8 h-8 text-white" />
           </div>
-            <h1 className="text-2xl font-bold text-gray-900">GA Mapper</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Academic Mapper</h1>
             <p className="text-gray-600 mt-2">Mapping System</p>
           <div className="flex bg-gray-100 rounded-lg p-1 mt-4 inline-flex">
             <button

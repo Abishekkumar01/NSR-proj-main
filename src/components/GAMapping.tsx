@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Search, GraduationCap, Trophy, Target, Users, Filter } from 'lucide-react';
 import { Student, Assessment, StudentAssessment, GAScore } from '../types';
 import { schools } from '../data/schools';
 import { graduateAttributes } from '../data/graduateAttributes';
+import { LocalStorageService } from '../lib/localStorage';
 
 interface GAMappingProps {
   students: Student[];
@@ -27,6 +28,18 @@ export function GAMapping({
   const [filterDepartment, setFilterDepartment] = useState<string>('');
   const [filterBatch, setFilterBatch] = useState<string>('');
   const [filterSection, setFilterSection] = useState<string>('');
+  const [autoSaveTimeout, setAutoSaveTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimeout) {
+        clearTimeout(autoSaveTimeout);
+      }
+    };
+  }, [autoSaveTimeout]);
 
   const filteredAssessments = useMemo(() => {
     let list = assessments;
@@ -35,8 +48,12 @@ export function GAMapping({
       if (s) list = list.filter(a => a.school === s.name);
     }
     if (filterDepartment) list = list.filter(a => a.department === filterDepartment);
+    if (filterBatch) {
+      // Filter by batch using course batch metadata via assessment's courseName not available here; rely on student batch filter to decide availability
+      // Keep assessments but progress/completion counts will reflect filtered students.
+    }
     return list.filter(a => a.name.toLowerCase().includes(searchTerm.toLowerCase()) || a.courseName.toLowerCase().includes(searchTerm.toLowerCase()));
-  }, [assessments, filterSchoolId, filterDepartment, searchTerm]);
+  }, [assessments, filterSchoolId, filterDepartment, filterBatch, searchTerm]);
 
   const departmentsForSelectedSchool = useMemo(() => {
     if (!filterSchoolId) return [] as string[];
@@ -68,18 +85,72 @@ export function GAMapping({
     return Array.from(setSections).sort();
   }, [filteredStudents]);
 
+  // Auto-save marks to localStorage with debouncing
+  const autoSaveMarks = useCallback((assessmentId: string, marks: {[studentId: string]: number}) => {
+    if (autoSaveTimeout) {
+      clearTimeout(autoSaveTimeout);
+    }
+    
+    setIsAutoSaving(true);
+    
+    const timeout = setTimeout(() => {
+      try {
+        const key = `unsaved_marks_${assessmentId}`;
+        localStorage.setItem(key, JSON.stringify(marks));
+        console.log('Auto-saved marks to localStorage');
+        setIsAutoSaving(false);
+      } catch (error) {
+        console.error('Error auto-saving marks:', error);
+        setIsAutoSaving(false);
+      }
+    }, 2000); // 2 second delay
+    
+    setAutoSaveTimeout(timeout);
+  }, [autoSaveTimeout]);
+
+  // Load unsaved marks from localStorage
+  const loadUnsavedMarks = useCallback((assessmentId: string): {[studentId: string]: number} => {
+    try {
+      const key = `unsaved_marks_${assessmentId}`;
+      const saved = localStorage.getItem(key);
+      return saved ? JSON.parse(saved) : {};
+    } catch (error) {
+      console.error('Error loading unsaved marks:', error);
+      return {};
+    }
+  }, []);
+
+  // Clear unsaved marks from localStorage
+  const clearUnsavedMarks = useCallback((assessmentId: string) => {
+    try {
+      const key = `unsaved_marks_${assessmentId}`;
+      localStorage.removeItem(key);
+    } catch (error) {
+      console.error('Error clearing unsaved marks:', error);
+    }
+  }, []);
+
   const handleAssessmentSelect = (assessment: Assessment) => {
     setSelectedAssessment(assessment);
     setShowMarkEntry(true);
     
-    // Initialize marks data with existing marks
+    // Initialize marks data with existing marks AND unsaved marks
     const initialMarks: {[studentId: string]: number} = {};
+    
+    // First load existing saved marks
     students.forEach(student => {
       const existingAssessment = studentAssessments.find(
         sa => sa.studentId === student.id && sa.assessmentId === assessment.id
       );
-      initialMarks[student.id] = existingAssessment?.marksObtained || 0;
+      if (existingAssessment && existingAssessment.marksObtained > 0) {
+        initialMarks[student.id] = existingAssessment.marksObtained;
+      }
     });
+    
+    // Then load unsaved marks from localStorage (this will override saved marks if any)
+    const unsavedMarks = loadUnsavedMarks(assessment.id);
+    Object.assign(initialMarks, unsavedMarks);
+    
     setMarksData(initialMarks);
   };
 
@@ -110,38 +181,60 @@ export function GAMapping({
     });
   };
 
-  const handleSubmitMarks = () => {
-    if (!selectedAssessment) return;
+  const handleSubmitMarks = async () => {
+    if (!selectedAssessment || isSubmitting) return;
 
-    Object.entries(marksData).forEach(([studentId, marks]) => {
-      if (marks > 0) {
-        const gaScores = calculateGAScore(marks, selectedAssessment.maxMarks, selectedAssessment.gaMapping);
-        
-        const existingAssessment = studentAssessments.find(
-          sa => sa.studentId === studentId && sa.assessmentId === selectedAssessment.id
-        );
+    setIsSubmitting(true);
+    try {
+      // Process all marks and save them
+      const savePromises = Object.entries(marksData).map(async ([studentId, marks]) => {
+        if (marks && marks > 0) {
+          const gaScores = calculateGAScore(marks, selectedAssessment.maxMarks, selectedAssessment.gaMapping);
+          
+          const existingAssessment = studentAssessments.find(
+            sa => sa.studentId === studentId && sa.assessmentId === selectedAssessment.id
+          );
 
-        const assessmentData: Omit<StudentAssessment, 'id'> = {
-          studentId,
-          assessmentId: selectedAssessment.id,
-          marksObtained: marks,
-          maxMarks: selectedAssessment.maxMarks,
-          gaScores,
-          submittedAt: new Date(),
-          evaluatedBy: 'Current Faculty'
-        };
+          const assessmentData: Omit<StudentAssessment, 'id'> = {
+            studentId,
+            assessmentId: selectedAssessment.id,
+            marksObtained: marks,
+            maxMarks: selectedAssessment.maxMarks,
+            gaScores,
+            submittedAt: new Date(),
+            evaluatedBy: 'Current Faculty'
+          };
 
-        if (existingAssessment) {
-          onUpdateStudentAssessment(existingAssessment.id, assessmentData);
-        } else {
-          onAddStudentAssessment(assessmentData);
+          if (existingAssessment) {
+            return onUpdateStudentAssessment(existingAssessment.id, assessmentData);
+          } else {
+            return onAddStudentAssessment(assessmentData);
+          }
         }
-      }
-    });
+      });
 
-    setShowMarkEntry(false);
-    setSelectedAssessment(null);
-    setMarksData({});
+      // Wait for all saves to complete
+      await Promise.all(savePromises.filter(Boolean));
+
+      // Clear unsaved marks from localStorage after successful submission
+      if (selectedAssessment) {
+        clearUnsavedMarks(selectedAssessment.id);
+      }
+
+      setShowMarkEntry(false);
+      setSelectedAssessment(null);
+      setMarksData({});
+      
+      console.log('All marks saved successfully!');
+    } catch (error) {
+      console.error('Error saving marks:', error);
+      // Still clear the form even if there's an error
+      setShowMarkEntry(false);
+      setSelectedAssessment(null);
+      setMarksData({});
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -283,7 +376,9 @@ export function GAMapping({
                                       {assessment.type}
                                     </span>
                                     <span className="text-xs text-gray-500">Max: {assessment.maxMarks}</span>
-                                    <span className="text-xs text-gray-500">GA Mappings: {assessment.gaMapping.length}</span>
+                                    <span className="text-xs text-gray-500">GA: {assessment.gaMapping.length}</span>
+                                    <span className="text-xs text-gray-500">CO: {assessment.coMapping?.length || 0}</span>
+                                    <span className="text-xs text-gray-500">PO: {assessment.poMapping?.length || 0}</span>
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-2">
@@ -323,10 +418,20 @@ export function GAMapping({
               <div>
                 <h3 className="text-2xl font-semibold text-gray-900">Enter Marks: {selectedAssessment?.name}</h3>
                 <p className="text-gray-600 text-lg mt-2">{selectedAssessment?.courseName} • Max Marks: {selectedAssessment?.maxMarks}</p>
+                {isAutoSaving && (
+                  <p className="text-blue-600 text-sm mt-1 flex items-center gap-1">
+                    <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                    Auto-saving...
+                  </p>
+                )}
               </div>
               <div className="flex gap-4">
                 <button
                   onClick={() => {
+                    // Clear unsaved marks from localStorage when canceling
+                    if (selectedAssessment) {
+                      clearUnsavedMarks(selectedAssessment.id);
+                    }
                     setShowMarkEntry(false);
                     setSelectedAssessment(null);
                     setMarksData({});
@@ -337,36 +442,107 @@ export function GAMapping({
                 </button>
                 <button
                   onClick={handleSubmitMarks}
-                  className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-lg font-medium"
+                  disabled={isSubmitting}
+                  className={`px-6 py-3 rounded-lg transition-colors text-lg font-medium flex items-center gap-2 ${
+                    isSubmitting 
+                      ? 'bg-gray-400 text-gray-200 cursor-not-allowed' 
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
                 >
-                  Submit Marks
+                  {isSubmitting && (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  )}
+                  {isSubmitting ? 'Saving...' : 'Submit Marks'}
                 </button>
               </div>
             </div>
           </div>
 
-          {/* GA Mapping Info */}
-          {selectedAssessment && selectedAssessment.gaMapping.length > 0 && (
-              <div className="p-8 bg-blue-50 border-b border-gray-200">
-                <h4 className="font-semibold text-gray-900 mb-6 text-xl">Mapping</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {selectedAssessment.gaMapping.map((mapping, index) => (
-                  <div key={index} className="bg-white p-6 rounded-lg border border-blue-200 shadow-sm">
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="font-semibold text-blue-900 text-lg">{mapping.gaCode}</span>
-                      <span className="text-lg text-blue-700 font-medium">{mapping.weightage}%</span>
-                    </div>
-                    <p className="text-blue-600 mb-3 text-base">{mapping.gaName}</p>
-                    <span className={`inline-block px-3 py-2 text-sm rounded-full font-medium ${
-                      mapping.targetLevel === 'Advanced' ? 'bg-green-100 text-green-800' :
-                      mapping.targetLevel === 'Intermediate' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-blue-100 text-blue-800'
-                    }`}>
-                      Target: {mapping.targetLevel}
-                    </span>
+          {/* All Mappings Info */}
+          {selectedAssessment && (
+            <div className="p-8 bg-gray-50 border-b border-gray-200">
+              <h4 className="font-semibold text-gray-900 mb-6 text-xl">Mapping</h4>
+              
+              {/* GA Mappings */}
+              {selectedAssessment.gaMapping && selectedAssessment.gaMapping.length > 0 && (
+                <div className="mb-8">
+                  <div className="flex items-center mb-4">
+                    <Trophy className="w-5 h-5 text-orange-600 mr-2" />
+                    <h5 className="text-lg font-semibold text-gray-800">GA Mappings</h5>
                   </div>
-                ))}
-              </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {selectedAssessment.gaMapping.map((mapping, index) => (
+                      <div key={index} className="bg-white p-4 rounded-lg border border-orange-200 shadow-sm">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-semibold text-orange-900">{mapping.gaCode}</span>
+                          <span className="text-orange-700 font-medium">{mapping.weightage}%</span>
+                        </div>
+                        <p className="text-orange-600 mb-2 text-sm">{mapping.gaName}</p>
+                        <span className={`inline-block px-2 py-1 text-xs rounded-full font-medium ${
+                          mapping.targetLevel === 'Advanced' ? 'bg-green-100 text-green-800' :
+                          mapping.targetLevel === 'Intermediate' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-blue-100 text-blue-800'
+                        }`}>
+                          {mapping.targetLevel}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* CO Mappings */}
+              {selectedAssessment.coMapping && selectedAssessment.coMapping.length > 0 && (
+                <div className="mb-8">
+                  <div className="flex items-center mb-4">
+                    <Target className="w-5 h-5 text-blue-600 mr-2" />
+                    <h5 className="text-lg font-semibold text-gray-800">CO Mappings</h5>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {selectedAssessment.coMapping.map((mapping, index) => (
+                      <div key={index} className="bg-white p-4 rounded-lg border border-blue-200 shadow-sm">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-semibold text-blue-900">{mapping.coCode}</span>
+                          <span className="text-blue-700 font-medium">{mapping.weightage}%</span>
+                        </div>
+                        <p className="text-blue-600 text-sm">{mapping.coName}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* PO Mappings */}
+              {selectedAssessment.poMapping && selectedAssessment.poMapping.length > 0 && (
+                <div className="mb-8">
+                  <div className="flex items-center mb-4">
+                    <GraduationCap className="w-5 h-5 text-purple-600 mr-2" />
+                    <h5 className="text-lg font-semibold text-gray-800">PO Mappings</h5>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {selectedAssessment.poMapping.map((mapping, index) => (
+                      <div key={index} className="bg-white p-4 rounded-lg border border-purple-200 shadow-sm">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-semibold text-purple-900">{mapping.poCode}</span>
+                          <span className="text-purple-700 font-medium">{mapping.weightage}%</span>
+                        </div>
+                        <p className="text-purple-600 text-sm">{mapping.poName}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* No mappings message */}
+              {(!selectedAssessment.gaMapping || selectedAssessment.gaMapping.length === 0) &&
+               (!selectedAssessment.coMapping || selectedAssessment.coMapping.length === 0) &&
+               (!selectedAssessment.poMapping || selectedAssessment.poMapping.length === 0) && (
+                <div className="text-center py-8">
+                  <Target className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-500">No mappings configured for this assessment</p>
+                  <p className="text-sm text-gray-400 mt-1">Configure GA, CO, and PO mappings in Assessment Management</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -394,8 +570,8 @@ export function GAMapping({
                     </tr>
                   ) : (
                     filteredStudents.map((student) => {
-                      const marks = marksData[student.id] || 0;
-                      const percentage = selectedAssessment ? (marks / selectedAssessment.maxMarks) * 100 : 0;
+                      const marks = marksData[student.id];
+                      const percentage = selectedAssessment && marks ? (marks / selectedAssessment.maxMarks) * 100 : 0;
                       const existingAssessment = studentAssessments.find(
                         sa => sa.studentId === student.id && sa.assessmentId === selectedAssessment?.id
                       );
@@ -410,13 +586,22 @@ export function GAMapping({
                                 type="number"
                                 min="0"
                                 max={selectedAssessment?.maxMarks || 100}
-                                value={marks}
-                                onChange={(e) => setMarksData({
-                                  ...marksData,
-                                  [student.id]: parseFloat(e.target.value) || 0
-                                })}
+                                value={marks || ''}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  const newMarksData = {
+                                    ...marksData,
+                                    [student.id]: value === '' ? undefined : parseFloat(value) || 0
+                                  };
+                                  setMarksData(newMarksData);
+                                  
+                                  // Auto-save to localStorage
+                                  if (selectedAssessment) {
+                                    autoSaveMarks(selectedAssessment.id, newMarksData);
+                                  }
+                                }}
                                 className="w-32 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg"
-                                placeholder="0"
+                                placeholder="Enter marks"
                               />
                               <span className="text-gray-500 text-lg">/ {selectedAssessment?.maxMarks}</span>
                             </div>
@@ -427,7 +612,7 @@ export function GAMapping({
                               percentage >= 60 ? 'text-yellow-600' :
                               percentage > 0 ? 'text-red-600' : 'text-gray-500'
                             }`}>
-                              {marks > 0 ? `${percentage.toFixed(1)}%` : '-'}
+                              {marks && marks > 0 ? `${percentage.toFixed(1)}%` : '-'}
                             </span>
                           </td>
                           <td className="px-6 py-4 text-base">
@@ -436,7 +621,7 @@ export function GAMapping({
                                 <Trophy className="w-4 h-4 mr-2" />
                                 Evaluated
                               </span>
-                            ) : marks > 0 ? (
+                            ) : marks && marks > 0 ? (
                               <span className="inline-flex items-center px-4 py-2 text-sm font-medium bg-blue-100 text-blue-800 rounded-full">
                                 Pending Save
                               </span>

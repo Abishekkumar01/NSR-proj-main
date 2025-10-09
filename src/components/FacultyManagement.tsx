@@ -70,16 +70,30 @@ export function FacultyManagement({
     return departmentSubjects[selectedDepartment] || [];
   }, [selectedDepartment]);
 
-  // Filtered faculty based on selections
+  // Filtered faculty based on selections - FIXED filtering logic
   const filteredFaculty = useMemo(() => {
     let filtered = faculty;
+    
+    console.log('All faculty:', faculty);
+    console.log('Selected school:', selectedSchool);
+    console.log('Selected department:', selectedDepartment);
 
     if (selectedSchool) {
-      filtered = filtered.filter(f => f.school === selectedSchool);
+      filtered = filtered.filter(f => {
+        const facultySchool = f.school?.trim() || '';
+        const filterSchool = selectedSchool.trim();
+        return facultySchool === filterSchool;
+      });
+      console.log('After school filter:', filtered);
     }
 
     if (selectedDepartment) {
-      filtered = filtered.filter(f => f.department === selectedDepartment);
+      filtered = filtered.filter(f => {
+        const facultyDept = f.department?.trim() || '';
+        const filterDept = selectedDepartment.trim();
+        return facultyDept === filterDept;
+      });
+      console.log('After department filter:', filtered);
     }
 
     if (searchTerm) {
@@ -89,6 +103,7 @@ export function FacultyManagement({
       );
     }
 
+    console.log('Final filtered faculty:', filtered);
     return filtered;
   }, [faculty, selectedSchool, selectedDepartment, searchTerm]);
 
@@ -116,11 +131,12 @@ export function FacultyManagement({
       return;
     }
 
+    // FIXED: Ensure form data has correct school and department values
     setFormData({
       name: '',
       email: '',
-      school: selectedSchool,
-      department: selectedDepartment,
+      school: selectedSchool, // Use the exact selected school value
+      department: selectedDepartment, // Use the exact selected department value
       batches: [],
       sections: [],
       subjects: [],
@@ -149,7 +165,7 @@ export function FacultyManagement({
     setEditingFaculty(faculty);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.name.trim() || !formData.email.trim()) {
@@ -169,31 +185,44 @@ export function FacultyManagement({
       return;
     }
 
+    // FIXED: Ensure school and department are properly set with current filter values
     const payload = {
       ...formData,
+      school: formData.school || selectedSchool, // Fallback to current filter
+      department: formData.department || selectedDepartment, // Fallback to current filter
+      // Persist derived fields explicitly
       batches: finalBatches,
       sections: finalSections,
+      subjects: finalSubjects,
       batchSemesters: formData.batchSemesters || {},
       batchSubjects: formData.batchSubjects || {},
       batchSections: formData.batchSections || {}
     };
-    if (editingFaculty) {
-      onUpdateFaculty(editingFaculty.id, payload);
-    } else {
-      onAddFaculty(payload);
+    
+    try {
+      if (editingFaculty) {
+        await onUpdateFaculty(editingFaculty.id, payload);
+      } else {
+        await onAddFaculty(payload);
+      }
+      handleCloseModal();
+      // FIXED: Don't reset filters after successful submission
+      // Keep selectedSchool and selectedDepartment as they are
+    } catch (error) {
+      console.error('Error saving faculty:', error);
+      alert('Error saving faculty. Please try again.');
     }
-
-    handleCloseModal();
   };
 
   const handleCloseModal = () => {
     setShowAddModal(false);
     setEditingFaculty(null);
+    // FIXED: Reset form but preserve school/department from current filters
     setFormData({
       name: '',
       email: '',
-      school: '',
-      department: '',
+      school: selectedSchool, // Keep current filter values
+      department: selectedDepartment, // Keep current filter values
       batches: [],
       sections: [],
       subjects: [],
@@ -498,6 +527,7 @@ export function FacultyManagement({
           ) : (
             <div className="px-6 py-12 text-center">
               <p className="text-gray-500">No faculty found for the selected criteria.</p>
+              <p className="text-gray-400 text-sm mt-1">Try adding a faculty member using the "Add Faculty" button above.</p>
             </div>
           )}
         </div>

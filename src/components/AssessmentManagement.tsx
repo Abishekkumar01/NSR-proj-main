@@ -221,6 +221,18 @@ export function AssessmentManagement({
         
       }]
     });
+    // Load CO/PO options for the course's department so the selects are populated while editing
+    const course = courses.find(c => c.id === assessment.courseId);
+    const department = assessment.department || course?.department || '';
+    if (department) {
+      const deptCOs = LocalStorageService.getCOOptions(department) || [];
+      setCoOptions(deptCOs);
+      const deptPOs = LocalStorageService.getPOOptions(department) || [];
+      setPoOptions(deptPOs);
+    } else {
+      setCoOptions([]);
+      setPoOptions([]);
+    }
     // Initialize End-Term grid when editing End-Term
     if (assessment.type === 'End-Term') {
       ensureEndTermGrid(0);

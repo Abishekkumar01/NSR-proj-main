@@ -1,17 +1,18 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Plus, Search, Edit2, Trash2, BookOpen, School } from 'lucide-react';
-import { Course } from '../types';
+import { Course, Faculty } from '../types';
 import { schools, School as SchoolType } from '../data/schools';
 import { LocalStorageService } from '../lib/localStorage';
 
 interface CourseManagementProps {
   courses: Course[];
+  faculty: Faculty[];
   onAddCourse: (course: Omit<Course, 'id'>) => void;
   onUpdateCourse: (id: string, course: Partial<Course>) => void;
   onDeleteCourse: (id: string) => void;
 }
 
-export function CourseManagement({ courses, onAddCourse, onUpdateCourse, onDeleteCourse }: CourseManagementProps) {
+export function CourseManagement({ courses, faculty, onAddCourse, onUpdateCourse, onDeleteCourse }: CourseManagementProps) {
   const [showModal, setShowModal] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -130,11 +131,30 @@ export function CourseManagement({ courses, onAddCourse, onUpdateCourse, onDelet
     }
   }, [formData.poOptions]);
 
+  // Clear faculty selection when department changes
+  useEffect(() => {
+    setFormData(prev => ({ ...prev, facultyId: '', facultyName: '' }));
+  }, [formData.department]);
+
   const departmentListForSelectedSchool = useMemo(() => {
     if (!filterSchoolId) return [] as string[];
     const school = schools.find(s => s.id === filterSchoolId);
     return school?.departments || [];
   }, [filterSchoolId]);
+
+  // Filter faculty based on selected school and department in the form
+  const availableFaculty = useMemo(() => {
+    if (!formData.department) return [];
+    
+    // Find the school for the selected department
+    const school = schools.find(s => s.departments.includes(formData.department));
+    if (!school) return [];
+    
+    // Filter faculty by school and department
+    return faculty.filter(f => 
+      f.school === school.name && f.department === formData.department
+    );
+  }, [faculty, formData.department]);
 
   const filteredCourses = useMemo(() => {
     let base: Course[] = courses;
@@ -778,14 +798,41 @@ export function CourseManagement({ courses, onAddCourse, onUpdateCourse, onDelet
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Faculty Name</label>
-                    <input
-                      type="text"
+                    <select
                       required
-                      value={formData.facultyName}
-                      onChange={(e) => setFormData({ ...formData, facultyName: e.target.value, facultyId: e.target.value.toLowerCase().replace(/\s+/g, '') })}
+                      value={formData.facultyId}
+                      onChange={(e) => {
+                        const selectedFaculty = availableFaculty.find(f => f.id === e.target.value);
+                        setFormData({ 
+                          ...formData, 
+                          facultyId: e.target.value,
+                          facultyName: selectedFaculty?.name || ''
+                        });
+                      }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                      placeholder="e.g., Dr. John Smith"
-                    />
+                      disabled={!formData.department || availableFaculty.length === 0}
+                    >
+                      <option value="">
+                        {!formData.department 
+                          ? "Select department first" 
+                          : availableFaculty.length === 0 
+                            ? "No faculty found for this department" 
+                            : "Select faculty member"
+                        }
+                      </option>
+                      {availableFaculty.map(faculty => (
+                        <option key={faculty.id} value={faculty.id}>
+                          {faculty.name} ({faculty.email})
+                        </option>
+                      ))}
+                    </select>
+                    {formData.department && availableFaculty.length === 0 && (
+                      <p className="text-xs text-amber-600 mt-1">
+                        No faculty members found for {formData.department}. 
+                        <br />
+                        Add faculty members in Faculty Management first.
+                      </p>
+                    )}
                   </div>
                 </div>
 

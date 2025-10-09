@@ -92,6 +92,12 @@ export class LocalStorageService {
     this.saveAssessments(filtered);
   }
 
+  static deleteStudentAssessmentsByAssessment(assessmentId: string): void {
+    const all = this.getStudentAssessments();
+    const filtered = all.filter(sa => sa.assessmentId !== assessmentId);
+    this.saveStudentAssessments(filtered);
+  }
+
   // Faculty Management
   static getFaculty(): Faculty[] {
     try {

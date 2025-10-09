@@ -66,7 +66,7 @@ export function Layout({ children, currentPage, onPageChange }: LayoutProps) {
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0
       `}>
         <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200">
-          <h1 className="text-xl font-bold text-gray-900">GA Mapper</h1>
+          <h1 className="text-xl font-bold text-gray-900">Academic Mapper</h1>
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-600 capitalize">
               {user?.role} Panel

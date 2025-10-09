@@ -149,8 +149,18 @@ function AppContent() {
   // Faculty handlers with Firebase integration
   const handleAddFaculty = async (data: Omit<Faculty, 'id' | 'createdAt'>) => {
     try {
+      const newFaculty: Faculty = {
+        id: generateId(),
+        ...data,
+        createdAt: new Date()
+      };
+      
+      // Save to both Firebase and local storage
       await facultyService.addFaculty(data);
-      await loadFaculty(); // Reload to get the latest data
+      await optimizedFirebase.saveData('faculty', newFaculty, newFaculty.id);
+      
+      // Update local state immediately
+      setFaculty(prev => [...prev, newFaculty]);
     } catch (error) {
       console.error('Error adding faculty:', error);
       throw error;
@@ -159,8 +169,12 @@ function AppContent() {
 
   const handleUpdateFaculty = async (id: string, data: Partial<Faculty>) => {
     try {
+      // Update in both Firebase and local storage
       await facultyService.updateFaculty(id, data);
-      await loadFaculty(); // Reload to get the latest data
+      await optimizedFirebase.saveData('faculty', data, id);
+      
+      // Update local state immediately
+      setFaculty(prev => prev.map(f => f.id === id ? { ...f, ...data } : f));
     } catch (error) {
       console.error('Error updating faculty:', error);
       throw error;
@@ -169,8 +183,12 @@ function AppContent() {
 
   const handleDeleteFaculty = async (id: string) => {
     try {
+      // Delete from both Firebase and local storage
       await facultyService.deleteFaculty(id);
-      await loadFaculty(); // Reload to get the latest data
+      await optimizedFirebase.deleteData('faculty', id);
+      
+      // Update local state immediately
+      setFaculty(prev => prev.filter(f => f.id !== id));
     } catch (error) {
       console.error('Error deleting faculty:', error);
       throw error;
@@ -190,8 +208,14 @@ function AppContent() {
     await optimizedFirebase.saveData('courses', data, id);
   };
   const handleDeleteCourse = async (id: string) => {
+    // Remove course
     setCourses(prev => prev.filter(c => c.id !== id));
-    // Data will be filtered out locally, Firebase sync will handle the rest
+    await optimizedFirebase.deleteData('courses', id);
+    // Cascade: delete assessments of this course and their student assessments
+    const relatedAssessments = assessments.filter(a => a.courseId === id);
+    for (const a of relatedAssessments) {
+      await handleDeleteAssessment(a.id);
+    }
   };
 
   // Assessment handlers with optimized Firebase
@@ -217,21 +241,45 @@ function AppContent() {
   };
   const handleDeleteAssessment = async (id: string) => {
     setAssessments(prev => prev.filter(a => a.id !== id));
-    setStudentAssessments(prev => prev.filter(sa => sa.assessmentId !== id));
-    // Data will be filtered out locally, Firebase sync will handle the rest
+    await optimizedFirebase.deleteData('assessments', id);
+    // Cascade: delete student assessments for this assessment
+    const remaining = studentAssessments.filter(sa => sa.assessmentId !== id);
+    setStudentAssessments(remaining);
+    // Persist student assessments after deletion
+    await optimizedFirebase.saveData('studentAssessments', {} as any); // trigger cache invalidation
   };
 
-  // StudentAssessment handlers
-  const handleAddStudentAssessment = (data: Omit<StudentAssessment, 'id'>) => {
+  // StudentAssessment handlers with persistence
+  const handleAddStudentAssessment = async (data: Omit<StudentAssessment, 'id'>) => {
     const newSA: StudentAssessment = { id: generateId(), ...data };
+    
+    // Update local state
     setStudentAssessments(prev => {
       // ensure one record per student+assessment
       const withoutExisting = prev.filter(sa => !(sa.studentId === newSA.studentId && sa.assessmentId === newSA.assessmentId));
       return [...withoutExisting, newSA];
     });
+    
+    // Persist to Firebase/localStorage
+    try {
+      await optimizedFirebase.saveData('studentAssessments', newSA, newSA.id);
+      console.log('Student assessment saved successfully');
+    } catch (error) {
+      console.error('Error saving student assessment:', error);
+    }
   };
-  const handleUpdateStudentAssessment = (id: string, data: Partial<StudentAssessment>) => {
+  
+  const handleUpdateStudentAssessment = async (id: string, data: Partial<StudentAssessment>) => {
+    // Update local state
     setStudentAssessments(prev => prev.map(sa => (sa.id === id ? { ...sa, ...data } : sa)));
+    
+    // Persist to Firebase/localStorage
+    try {
+      await optimizedFirebase.saveData('studentAssessments', data, id);
+      console.log('Student assessment updated successfully');
+    } catch (error) {
+      console.error('Error updating student assessment:', error);
+    }
   };
 
   if (loading) {
@@ -268,6 +316,7 @@ function AppContent() {
         return user.role === 'admin' ? (
           <CourseManagement
             courses={courses}
+            faculty={faculty}
             onAddCourse={handleAddCourse}
             onUpdateCourse={handleUpdateCourse}
             onDeleteCourse={handleDeleteCourse}

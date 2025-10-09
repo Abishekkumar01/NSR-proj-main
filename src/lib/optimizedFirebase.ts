@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, limit, orderBy, startAfter, DocumentSnapshot } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, query, where, getDocs, limit, orderBy, startAfter, DocumentSnapshot } from 'firebase/firestore';
 import { LocalStorageService } from './localStorage';
 
 // Firebase configuration
@@ -204,6 +204,39 @@ export class OptimizedFirebaseService {
       case 'studentAssessments':
         LocalStorageService.saveStudentAssessments(data);
         break;
+    }
+  }
+
+  private deleteLocalDataItem(collectionName: string, id: string): void {
+    const existingData = this.getLocalData(collectionName);
+    const filtered = existingData.filter(item => item.id !== id);
+    this.saveLocalData(collectionName, filtered);
+  }
+
+  private async deleteFromFirebaseAsync(collectionName: string, id: string): Promise<void> {
+    try {
+      const firebaseCollectionName = collectionName === 'studentAssessments' ? 'student_assessments' : collectionName;
+      const docRef = doc(db, firebaseCollectionName, id);
+      await deleteDoc(docRef);
+      console.log(`Deleted from Firebase: ${firebaseCollectionName}/${id}`);
+    } catch (error) {
+      console.error(`Firebase delete error for ${collectionName}:`, error);
+    }
+  }
+
+  async deleteData(collectionName: string, id: string): Promise<void> {
+    try {
+      // Delete from localStorage immediately
+      this.deleteLocalDataItem(collectionName, id);
+      // Invalidate cache
+      this.clearCache();
+      // Delete from Firebase in background
+      if (this.currentUser) {
+        await this.deleteFromFirebaseAsync(collectionName, id);
+      }
+    } catch (error) {
+      console.error(`Error deleting ${collectionName}:`, error);
+      throw error;
     }
   }
 

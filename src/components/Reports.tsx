@@ -24,6 +24,7 @@ interface FilterState {
   school: string;
   department: string;
   batch: string;
+  section?: string;
   faculty: string;
   student: string;
   semesters: number[];
@@ -34,11 +35,12 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'
 
 export function Reports({ students, assessments, studentAssessments, courses, faculty }: ReportsProps) {
   const [viewMode, setViewMode] = useState<'overview' | 'individual'>('overview');
-  const [activeSection, setActiveSection] = useState<'student' | 'course' | 'assessment' | 'ga' | 'faculty'>('student');
+  const [activeSection, setActiveSection] = useState<'student' | 'course' | 'assessment' | 'ga' | 'co' | 'po' | 'faculty'>('student');
   const [filters, setFilters] = useState<FilterState>({
     school: '',
     department: '',
     batch: '',
+    section: '',
     faculty: '',
     student: '',
     semesters: [],
@@ -100,6 +102,8 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
     // Apply batch filter
     if (filters.batch) {
       filteredStudents = filteredStudents.filter(s => s.batch === filters.batch);
+      // Filter courses by batch if present on courses
+      filteredCourses = filteredCourses.filter(c => !c.batch || c.batch === filters.batch);
     }
 
     // Apply faculty filter
@@ -113,6 +117,11 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
       filteredStudents = filteredStudents.filter(s => s.id === filters.student);
     }
 
+    // Apply section filter (after batch to narrow set)
+    if (filters.section) {
+      filteredStudents = filteredStudents.filter(s => (s.section || '') === filters.section);
+    }
+
     return {
       students: filteredStudents,
       assessments: filteredAssessments,
@@ -124,7 +133,9 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
   // Calculate GA reports
   const gaReports = useMemo(() => {
     return filteredData.students.map(student => {
-      const studentAssessmentsForStudent = studentAssessments.filter(sa => sa.studentId === student.id);
+      // Restrict student GA scores to assessments included in current filters
+      const allowedAssessmentIds = new Set(filteredData.assessments.map(a => a.id));
+      const studentAssessmentsForStudent = studentAssessments.filter(sa => sa.studentId === student.id && allowedAssessmentIds.has(sa.assessmentId));
       
       const gaScores: GAReport['gaScores'] = {};
       
@@ -137,13 +148,17 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
         };
       });
 
+      // Compute GA scores from student marks and assessment GA weightages (ignore stored GA scores)
       studentAssessmentsForStudent.forEach(sa => {
-        sa.gaScores.forEach(gaScore => {
-          const gaData = gaScores[gaScore.gaCode];
-          if (gaData) {
-            gaData.totalScore += gaScore.score;
-            gaData.assessmentCount += 1;
-          }
+        const assessment = filteredData.assessments.find(a => a.id === sa.assessmentId);
+        if (!assessment) return;
+        const percent = sa.maxMarks > 0 ? (sa.marksObtained / sa.maxMarks) * 100 : 0;
+        (assessment.gaMapping || []).forEach(gam => {
+          const gaData = gaScores[gam.gaCode];
+          if (!gaData) return;
+          const gaScore = percent * (gam.weightage / 100);
+          gaData.totalScore += gaScore;
+          gaData.assessmentCount += 1;
         });
       });
 
@@ -175,7 +190,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
         overallGAPerformance
       };
     });
-  }, [filteredData.students, studentAssessments]);
+  }, [filteredData.students, filteredData.assessments, studentAssessments]);
 
   // Chart data generators
   const getSchoolData = () => {
@@ -305,24 +320,36 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
     });
   };
 
+  // Fallback using assessment GA mappings (when there are no student GA scores yet)
+  const getGAMappingDistributionData = () => {
+    const map: Record<string, { name: string; totalWeight: number; count: number }> = {};
+    filteredData.assessments.forEach(a => {
+      a.gaMapping.forEach(g => {
+        const key = g.gaCode;
+        if (!map[key]) map[key] = { name: key, totalWeight: 0, count: 0 };
+        map[key].totalWeight += g.weightage;
+        map[key].count += 1;
+      });
+    });
+    return Object.values(map).map(e => ({ name: e.name, value: e.count > 0 ? e.totalWeight / e.count : 0, count: e.count }));
+  };
+
   const getGADistributionData = () => {
-    const gaStats = graduateAttributes.map(ga => {
+    // Use only GAs that exist either in scores within cohort or in assessment mappings within cohort
+    const mappingGAs = new Set(getGAMappingDistributionData().map(m => m.name));
+    const scoreBasedRaw = graduateAttributes.map(ga => {
       const scores = gaReports
         .map(report => report.gaScores[ga.code]?.averageScore || 0)
         .filter(score => score > 0);
-      
       const average = scores.length > 0 
         ? scores.reduce((sum, score) => sum + score, 0) / scores.length
         : 0;
-      
-      return {
-        name: ga.code,
-        value: average,
-        count: scores.length
-      };
+      return { name: ga.code, value: average, count: scores.length };
     });
-
-    return gaStats;
+    const scoreBased = scoreBasedRaw.filter(s => s.count > 0);
+    if (scoreBased.length > 0) return scoreBased;
+    // If no scores, show only GAs present in current assessments
+    return getGAMappingDistributionData().filter(g => mappingGAs.has(g.name));
   };
 
   const getAssessmentTypeData = () => {
@@ -334,6 +361,82 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
     return Object.entries(typeStats).map(([type, count]) => ({
       name: type,
       value: count
+    }));
+  };
+
+  // CO distribution with actual performance scores based on student marks
+  const getCOScoreDistributionData = () => {
+    const coPerformanceMap: Record<string, { name: string; totalScore: number; count: number; totalWeight: number }> = {};
+    
+    // Initialize COs from assessments
+    filteredData.assessments.forEach(a => {
+      (a.coMapping || []).forEach(co => {
+        if (!coPerformanceMap[co.coCode]) {
+          coPerformanceMap[co.coCode] = { name: co.coCode, totalScore: 0, count: 0, totalWeight: 0 };
+        }
+        coPerformanceMap[co.coCode].totalWeight += co.weightage;
+      });
+    });
+
+    // Calculate performance scores from student assessments
+    studentAssessments.forEach(sa => {
+      const assessment = filteredData.assessments.find(a => a.id === sa.assessmentId);
+      if (!assessment || !assessment.coMapping) return;
+
+      const studentPercentage = (sa.marksObtained / sa.maxMarks) * 100;
+      
+      assessment.coMapping.forEach(co => {
+        if (coPerformanceMap[co.coCode]) {
+          const coScore = (studentPercentage * co.weightage) / 100;
+          coPerformanceMap[co.coCode].totalScore += coScore;
+          coPerformanceMap[co.coCode].count += 1;
+        }
+      });
+    });
+
+    return Object.values(coPerformanceMap).map(co => ({
+      name: co.name,
+      value: co.count > 0 ? co.totalScore / co.count : 0,
+      count: co.count,
+      averageWeight: co.totalWeight / filteredData.assessments.filter(a => a.coMapping?.some(c => c.coCode === co.name)).length || 0
+    }));
+  };
+
+  // PO distribution with actual performance scores based on student marks
+  const getPOScoreDistributionData = () => {
+    const poPerformanceMap: Record<string, { name: string; totalScore: number; count: number; totalWeight: number }> = {};
+    
+    // Initialize POs from assessments
+    filteredData.assessments.forEach(a => {
+      (a.poMapping || []).forEach(po => {
+        if (!poPerformanceMap[po.poCode]) {
+          poPerformanceMap[po.poCode] = { name: po.poCode, totalScore: 0, count: 0, totalWeight: 0 };
+        }
+        poPerformanceMap[po.poCode].totalWeight += po.weightage;
+      });
+    });
+
+    // Calculate performance scores from student assessments
+    studentAssessments.forEach(sa => {
+      const assessment = filteredData.assessments.find(a => a.id === sa.assessmentId);
+      if (!assessment || !assessment.poMapping) return;
+
+      const studentPercentage = (sa.marksObtained / sa.maxMarks) * 100;
+      
+      assessment.poMapping.forEach(po => {
+        if (poPerformanceMap[po.poCode]) {
+          const poScore = (studentPercentage * po.weightage) / 100;
+          poPerformanceMap[po.poCode].totalScore += poScore;
+          poPerformanceMap[po.poCode].count += 1;
+        }
+      });
+    });
+
+    return Object.values(poPerformanceMap).map(po => ({
+      name: po.name,
+      value: po.count > 0 ? po.totalScore / po.count : 0,
+      count: po.count,
+      averageWeight: po.totalWeight / filteredData.assessments.filter(a => a.poMapping?.some(p => p.poCode === po.name)).length || 0
     }));
   };
 
@@ -372,6 +475,18 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
           csvContent += `${ga.name},${graduateAttributes.find(g => g.code === ga.name)?.name || 'N/A'},${ga.value.toFixed(2)},${ga.count}\n`;
         });
         break;
+        case 'co':
+          csvContent = 'CO Code,Average Performance Score,Student Count,Average Weightage\n';
+          getCOScoreDistributionData().forEach(co => {
+            csvContent += `${co.name},${co.value.toFixed(2)},${co.count},${co.averageWeight.toFixed(2)}\n`;
+          });
+          break;
+        case 'po':
+          csvContent = 'PO Code,Average Performance Score,Student Count,Average Weightage\n';
+          getPOScoreDistributionData().forEach(po => {
+            csvContent += `${po.name},${po.value.toFixed(2)},${po.count},${po.averageWeight.toFixed(2)}\n`;
+          });
+          break;
       case 'faculty':
         csvContent = 'Faculty Name,School,Department,Students,Courses,Assessments\n';
         getFacultyData().forEach(f => {
@@ -396,9 +511,10 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
       ...prev,
       [key]: value,
       // Reset dependent filters
-      ...(key === 'school' && { department: '', batch: '', faculty: '', student: '' }),
-      ...(key === 'department' && { batch: '', faculty: '', student: '' }),
-      ...(key === 'batch' && { faculty: '', student: '' }),
+      ...(key === 'school' && { department: '', batch: '', section: '', faculty: '', student: '' }),
+      ...(key === 'department' && { batch: '', section: '', faculty: '', student: '' }),
+      ...(key === 'batch' && { section: '', faculty: '', student: '' }),
+      ...(key === 'section' && { student: '' }),
       ...(key === 'faculty' && { student: '' })
     }));
   };
@@ -424,6 +540,17 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
   };
 
   const renderOverviewCharts = () => {
+    // Require School, Department, and Batch for assessment-driven sections (assessment, ga, co, po)
+    const needsStrictFilters = ['assessment', 'ga', 'co', 'po'].includes(activeSection);
+    const haveStrictFilters = Boolean(filters.school && filters.department && filters.batch);
+    if (needsStrictFilters && !haveStrictFilters) {
+      return (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
+          <Filter className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+          <p className="text-gray-500">Select School, Department and Batch to view these charts</p>
+        </div>
+      );
+    }
     switch (activeSection) {
       case 'student':
         return (
@@ -588,6 +715,110 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
           </div>
         );
 
+      case 'co':
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">CO Performance Distribution</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={getCOScoreDistributionData()}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip 
+                    formatter={(value: number, name: string) => [
+                      `${value.toFixed(2)}%`, 
+                      'Average Performance Score'
+                    ]}
+                  />
+                  <Legend />
+                  <Bar dataKey="value" fill="#00C49F" name="Average Performance Score" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">CO Student Coverage</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={getCOScoreDistributionData()}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, count }) => `${name}: ${count} students`}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="count"
+                  >
+                    {getCOScoreDistributionData().map((entry, index) => (
+                      <Cell key={`cell-co-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                    formatter={(value: number, name: string) => [
+                      `${value} students`, 
+                      'Student Count'
+                    ]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        );
+
+      case 'po':
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">PO Performance Distribution</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={getPOScoreDistributionData()}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip 
+                    formatter={(value: number, name: string) => [
+                      `${value.toFixed(2)}%`, 
+                      'Average Performance Score'
+                    ]}
+                  />
+                  <Legend />
+                  <Bar dataKey="value" fill="#FFBB28" name="Average Performance Score" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">PO Student Coverage</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={getPOScoreDistributionData()}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, count }) => `${name}: ${count} students`}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="count"
+                  >
+                    {getPOScoreDistributionData().map((entry, index) => (
+                      <Cell key={`cell-po-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                    formatter={(value: number, name: string) => [
+                      `${value} students`, 
+                      'Student Count'
+                    ]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        );
+
       case 'faculty':
         return (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -627,6 +858,15 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
     }
   };
 
+  const getSelectedStudentGABarData = () => {
+    if (!filters.student) return [] as { name: string; value: number }[];
+    const report = gaReports.find(r => r.studentId === filters.student);
+    if (!report) return [];
+    return Object.entries(report.gaScores)
+      .filter(([_code, data]) => data.assessmentCount > 0)
+      .map(([code, data]) => ({ name: code, value: data.averageScore }));
+  };
+
   const renderIndividualCharts = () => {
     if (!filters.school) {
       return (
@@ -636,6 +876,8 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
         </div>
       );
     }
+
+    // Progressive refinement: charts update as Department/Batch/Student are set via filteredData
 
     switch (activeSection) {
       case 'student':
@@ -688,6 +930,103 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
                 </ResponsiveContainer>
               </div>
             )}
+          </div>
+        );
+
+      case 'ga':
+        return (
+          <div className="space-y-6">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">GA Performance (Current Selection)</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={getGADistributionData()}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="value" fill="#8884D8" name="Average Score / Avg Weightage" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {filters.student && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Selected Student GA Breakdown</h3>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={getSelectedStudentGABarData()}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="value" fill="#00C49F" name="Avg Score" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+        );
+
+      case 'co':
+        return (
+          <div className="space-y-6">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">CO Weightage & Coverage (Current Selection)</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={getCODistributionData()}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="value" fill="#00C49F" name="Avg Weightage %" />
+                  </BarChart>
+                </ResponsiveContainer>
+                <ResponsiveContainer width="100%" height={280}>
+                  <PieChart>
+                    <Pie data={getCODistributionData()} dataKey="count" cx="50%" cy="50%" outerRadius={90} label={({ name, count }) => `${name}: ${count}` }>
+                      {getCODistributionData().map((entry, index) => (
+                        <Cell key={`co-ind-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        );
+
+      case 'po':
+        return (
+          <div className="space-y-6">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">PO Weightage & Coverage (Current Selection)</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={getPODistributionData()}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="value" fill="#FFBB28" name="Avg Weightage %" />
+                  </BarChart>
+                </ResponsiveContainer>
+                <ResponsiveContainer width="100%" height={280}>
+                  <PieChart>
+                    <Pie data={getPODistributionData()} dataKey="count" cx="50%" cy="50%" outerRadius={90} label={({ name, count }) => `${name}: ${count}` }>
+                      {getPODistributionData().map((entry, index) => (
+                        <Cell key={`po-ind-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
           </div>
         );
 
@@ -749,6 +1088,8 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
             { key: 'course', label: 'Course', icon: BookOpen },
             { key: 'assessment', label: 'Assessment', icon: Target },
             { key: 'ga', label: 'GA Mapping', icon: Award },
+            { key: 'co', label: 'CO Mapping', icon: TrendingUp },
+            { key: 'po', label: 'PO Mapping', icon: BarChart3 },
             { key: 'faculty', label: 'Faculty', icon: GraduationCap }
           ].map(({ key, label, icon: Icon }) => (
             <button
@@ -774,7 +1115,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
           <h3 className="text-lg font-semibold text-gray-900">Filters</h3>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           {/* School Filter */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">School *</label>
@@ -818,6 +1159,22 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
               <option value="">All Batches</option>
               {[...new Set(filteredData.students.map(s => s.batch))].sort().map(batch => (
                 <option key={batch} value={batch}>{batch}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Section Filter */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Section</label>
+            <select
+              value={filters.section}
+              onChange={(e) => updateFilter('section', e.target.value)}
+              disabled={!filters.batch}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+            >
+              <option value="">All Sections</option>
+              {[...new Set(filteredData.students.map(s => s.section).filter(Boolean))].sort().map(sec => (
+                <option key={sec as string} value={sec as string}>{sec as string}</option>
               ))}
             </select>
           </div>
