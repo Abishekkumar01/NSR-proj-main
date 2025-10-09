@@ -17,8 +17,8 @@ export const schools: School[] = [
       'Mechanical Engineering',
       'Civil Engineering',
       'Electrical & Electronics Engineering',
-      'Electronics & Telecommunication Engineering',
-      'Artificial Intelligence'
+      'Data Science',
+      'Chemical Engineering'
     ]
   },
   {

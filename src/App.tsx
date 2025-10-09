@@ -317,6 +317,7 @@ function AppContent() {
           <CourseManagement
             courses={courses}
             faculty={faculty}
+            students={students}
             onAddCourse={handleAddCourse}
             onUpdateCourse={handleUpdateCourse}
             onDeleteCourse={handleDeleteCourse}

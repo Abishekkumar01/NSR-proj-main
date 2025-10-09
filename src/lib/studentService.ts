@@ -1,5 +1,5 @@
 import { db } from './firebase';
-import { collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy } from 'firebase/firestore';
+import { collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy, limit, startAfter } from 'firebase/firestore';
 import { Student } from '../types';
 import { getSchoolFromDepartment } from './schoolMapping';
 
@@ -72,6 +72,37 @@ export const studentService = {
       await deleteDoc(studentRef);
     } catch (error) {
       console.error('Error deleting student:', error);
+      throw error;
+    }
+  },
+
+  // Danger: Delete ALL students from Firebase
+  async deleteAllStudents(): Promise<number> {
+    try {
+      let deleted = 0;
+      const pageSize = 300; // delete in pages to avoid memory spikes
+
+      // Keep deleting first N docs until collection is empty (no orderBy required)
+      // This avoids failures when some docs lack the 'createdAt' field
+      // and works regardless of field presence.
+      // Caution: Each loop does a fresh query after deletions.
+      while (true) {
+        const snapshot = await getDocs(query(collection(db, STUDENTS_COLLECTION), limit(pageSize)));
+        if (snapshot.empty) break;
+
+        await Promise.all(snapshot.docs.map(d => deleteDoc(doc(db, STUDENTS_COLLECTION, d.id))));
+        deleted += snapshot.docs.length;
+
+        if (snapshot.size < pageSize) {
+          // Check if any remain
+          const check = await getDocs(query(collection(db, STUDENTS_COLLECTION), limit(1)));
+          if (check.empty) break;
+        }
+      }
+
+      return deleted;
+    } catch (error) {
+      console.error('Error deleting all students:', error);
       throw error;
     }
   },

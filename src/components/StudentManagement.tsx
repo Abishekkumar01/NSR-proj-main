@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Plus, Search, Edit2, Trash2, Users, School, Upload, FileSpreadsheet, Download } from 'lucide-react';
 import { Student, Faculty } from '../types';
 import { schools, School as SchoolType } from '../data/schools';
 import { getSchoolFromDepartment } from '../lib/schoolMapping';
+import { LocalStorageService } from '../lib/localStorage';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -27,8 +28,20 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
   const [excelData, setExcelData] = useState<any[]>([]);
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
   const [uploadMessage, setUploadMessage] = useState('');
+  const [importDefaults, setImportDefaults] = useState({
+    department: '',
+    batch: '',
+    section: '',
+    semester: 1
+  });
+  const [skippedRows, setSkippedRows] = useState<any[]>([]);
+  const [showSkipped, setShowSkipped] = useState(false);
+  const [duplicateRows, setDuplicateRows] = useState<any[]>([]);
+  const [showDuplicates, setShowDuplicates] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
+  const [isRemovingDuplicates, setIsRemovingDuplicates] = useState(false);
+  const [showOutsideModal, setShowOutsideModal] = useState(false);
   // Advanced filters (for admin only)
   const [filterSchoolId, setFilterSchoolId] = useState<string>('');
   const [filterDepartment, setFilterDepartment] = useState<string>('');
@@ -42,10 +55,22 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
     batch: '',
     semester: 1,
     enrollmentNumber: '',
-    section: ''
+    section: '',
+    mobile: ''
   });
 
-  const batches = ['2021-25', '2022-26', '2023-27', '2024-28'];
+  // Batch management state
+  const [batchOptions, setBatchOptions] = useState<string[]>([]);
+  const [newBatch, setNewBatch] = useState('');
+  const [newBatchEnd, setNewBatchEnd] = useState('');
+
+  // Load batch options when department changes
+  useEffect(() => {
+    if (formData.department) {
+      const batches = LocalStorageService.getBatchOptions(formData.department) || [];
+      setBatchOptions(batches);
+    }
+  }, [formData.department]);
 
   // Faculty-based filtering for faculty users
   const facultyFilteredStudents = useMemo(() => {
@@ -88,6 +113,28 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
     const school = schools.find(s => s.id === filterSchoolId);
     return school?.departments || [];
   }, [filterSchoolId]);
+
+  // Populate Batch options for Admin filters based on current selection and loaded students
+  useEffect(() => {
+    if (user?.role !== 'admin') return;
+    if (!filterSchoolId) {
+      setBatchOptions([]);
+      return;
+    }
+    const school = schools.find(s => s.id === filterSchoolId);
+    const schoolName = school?.name;
+    const allowedDepartments = new Set((school?.departments || []));
+
+    const eligible = students.filter(s => {
+      const inSchool = (s.school === schoolName) || (s.department && allowedDepartments.has(s.department));
+      if (!inSchool) return false;
+      if (filterDepartment && s.department !== filterDepartment) return false;
+      return !!s.batch;
+    });
+
+    const batches = Array.from(new Set(eligible.map(s => s.batch))).sort();
+    setBatchOptions(batches);
+  }, [user, filterSchoolId, filterDepartment, students]);
 
   const filteredStudents = useMemo(() => {
     // For faculty users, show their assigned students directly
@@ -157,12 +204,15 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
       batch: '',
       semester: 1,
       enrollmentNumber: '',
-      section: ''
+      section: '',
+      mobile: ''
     });
     setEditingStudent(null);
     setShowModal(false);
     setSelectedSchool(null);
     setSelectedDepartment('');
+    setNewBatch('');
+    setNewBatchEnd('');
   };
 
   const handleEdit = (student: Student) => {
@@ -175,8 +225,16 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
       batch: student.batch,
       semester: student.semester,
       enrollmentNumber: student.enrollmentNumber || '',
-      section: student.section || ''
+      section: student.section || '',
+      mobile: (student as any).mobile || ''
     });
+    
+    // Load batch options for the student's department
+    if (student.department) {
+      const batches = LocalStorageService.getBatchOptions(student.department) || [];
+      setBatchOptions(batches);
+    }
+    
     setShowModal(true);
   };
 
@@ -232,60 +290,225 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+        const sheetNames = workbook.SheetNames || [];
 
-        // Validate required columns
-        const requiredColumns = ['Roll Number', 'Name', 'Email', 'Enrollment No.', 'Section', 'Department', 'Batch', 'Semester'];
-        const firstRow = jsonData[0] as any;
-        const missingColumns = requiredColumns.filter(col => !(col in firstRow));
+        const allProcessed: any[] = [];
+        const allInvalid: any[] = [];
+        const allDuplicates: any[] = [];
+        const perSheetStats: { name: string; ok: number; skipped: number; totalRowsInclHeader: number }[] = [];
 
-        if (missingColumns.length > 0) {
-          setUploadStatus('error');
-          setUploadMessage(`Missing required columns: ${missingColumns.join(', ')}`);
-          return;
-        }
+        const normalizeBatch = (value: string): string => {
+          const v = String(value || '').trim();
+          if (!v) return '';
+          const years = v.match(/(20\d{2})\D+(20\d{2})/);
+          if (years) {
+            const start = years[1];
+            const end = years[2].slice(2);
+            return `${start}-${end}`;
+          }
+          const short = v.match(/\b(\d{2})\s*[-–to]+\s*(\d{2})\b/i);
+          if (short) {
+            return `20${short[1]}-20${short[2]}`.replace(/^(20\d{2})-(20(\d{2}))$/, (_m, s, _e, ee) => `${s}-${ee}`);
+          }
+          const single = v.match(/\b(20\d{2})\b/);
+          if (single) {
+            const start = single[1];
+            const endYY = String((parseInt(start, 10) + 4)).slice(2);
+            return `${start}-${endYY}`;
+          }
+          return v;
+        };
 
-        // Process and validate data
-        const processedData = jsonData.map((row: any, index: number) => {
-          const student = {
-            rollNumber: String(row['Roll Number'] || '').trim(),
-            name: String(row['Name'] || '').trim(),
-            email: String(row['Email'] || '').trim(),
-            enrollmentNumber: String(row['Enrollment No.'] || '').trim(),
-            section: String(row['Section'] || '').trim(),
-            department: String(row['Department'] || '').trim(),
-            batch: String(row['Batch'] || '').trim(),
-            semester: parseInt(String(row['Semester'] || '1')) || 1,
-            rowIndex: index + 2 // +2 because Excel is 1-indexed and we skip header
+        const parseBatchFromSheetName = (name: string): string => {
+          // e.g., "Batch 2022-2026", "Batch 2023-2027"
+          const m = name.match(/batch\s*(.*)$/i);
+          if (!m) return '';
+          return normalizeBatch(m[1]);
+        };
+
+        const processOneSheet = (sheetName: string) => {
+          const worksheet = workbook.Sheets[sheetName];
+          if (!worksheet) return;
+
+          // Read as 2D array to robustly detect header row
+          const rows = XLSX.utils.sheet_to_json<string[]>(worksheet, { header: 1, raw: false }) as any[];
+          const totalRowsInclHeader = rows.length; // includes header row
+
+          // Helper to normalize header text
+          const norm = (v: any) => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+        // Known header aliases
+        const headerAliases: { [key: string]: string[] } = {
+          enrollment: ['enrollment no.', 'enrolment no.', 'enrollment number', 'enrolment number', 'enrollment', 'enrolment', 'univ roll no.', 'university roll no.', 'univ roll no', 'university roll no', 'urn', 'enroll no', 'enroll number'],
+          name: ['name', 'student name', 'full name', 'candidate name', "student's name", 'name of student'],
+          department: ['department', 'dept', 'program', 'programme', 'branch', 'course'],
+          batch: ['batch', 'batch year', 'session', 'batch (from-to)', 'batch (start-end)'],
+          section: ['section', 'sec'],
+          email: ['email', 'email id', 'e-mail'],
+          mobile: ['mobile', 'mobile no.', 'mobile no', 'phone', 'phone number', 'contact', 'contact no.']
+        };
+
+          const allAliases = new Map<string, string>();
+          Object.entries(headerAliases).forEach(([key, aliases]) => {
+            aliases.forEach(a => allAliases.set(norm(a), key));
+          });
+
+        // Find header row: the row that matches at least 2 known headers (more tolerant)
+          let headerRowIndex = -1;
+          let colToField = new Map<number, string>();
+          const maxScan = Math.min(rows.length, 20);
+          for (let r = 0; r < maxScan; r++) {
+            const row = Array.isArray(rows[r]) ? rows[r] : [];
+            const tempMap = new Map<number, string>();
+            let matches = 0;
+            row.forEach((cell: any, idx: number) => {
+              const key = allAliases.get(norm(cell));
+              if (key && !Array.from(tempMap.values()).includes(key)) {
+                tempMap.set(idx, key);
+                matches++;
+              }
+            });
+            if (matches >= 2) {
+              headerRowIndex = r;
+              colToField = tempMap;
+              break;
+            }
+          }
+
+        // Fuzzy fallback: if still not found, try to infer header from first non-empty row
+          if (headerRowIndex === -1) {
+            for (let r = 0; r < Math.min(rows.length, 10); r++) {
+              const row = Array.isArray(rows[r]) ? rows[r] : [];
+              if (!row || row.every((c: any) => !String(c || '').trim())) continue;
+              const temp = new Map<number, string>();
+              row.forEach((cell: any, idx: number) => {
+                const text = norm(cell);
+                if (!text) return;
+                const mapByKeyword = (
+                  text.includes('enrol') || text.includes('univ roll') || text.includes('urn')
+                ) ? 'enrollment'
+                  : text.includes('name') ? 'name'
+                  : (text.includes('dept') || text.includes('program') || text.includes('programme') || text.includes('branch') || text.includes('course')) ? 'department'
+                  : text.includes('batch') || text.includes('session') ? 'batch'
+                  : text.includes('section') || text === 'sec' ? 'section'
+                  : text.includes('email') ? 'email'
+                  : (text.includes('mobile') || text.includes('phone') || text.includes('contact')) ? 'mobile'
+                  : '';
+                if (mapByKeyword && !Array.from(temp.values()).includes(mapByKeyword)) {
+                  temp.set(idx, mapByKeyword);
+                }
+              });
+              if (temp.size >= 2) {
+                headerRowIndex = r;
+                colToField = temp;
+                break;
+              }
+            }
+          }
+
+          if (headerRowIndex === -1) {
+            throw new Error('Could not detect header row. Please include recognizable headers (e.g., Name, Enrollment No., Department, Batch).');
+          }
+
+        // Build processed data from rows after header
+          const bodyRows = rows.slice(headerRowIndex + 1);
+
+        // Helpers
+          const getField = (row: any[], field: string): string => {
+            for (const [colIdx, mappedField] of colToField.entries()) {
+              if (mappedField === field) {
+                return String(row[colIdx] ?? '').trim();
+              }
+            }
+            return '';
           };
 
-          // Validate required fields
-          const errors = [];
-          if (!student.rollNumber) errors.push('Roll Number');
-          if (!student.name) errors.push('Name');
-          if (!student.email) errors.push('Email');
-          if (!student.enrollmentNumber) errors.push('Enrollment No.');
-          if (!student.section) errors.push('Section');
-          if (!student.department) errors.push('Department');
-          if (!student.batch) errors.push('Batch');
+        const normalizeEnrollment = (value: string): string => String(value || '').trim();
 
-          return { ...student, errors };
+          const sheetBatchDefault = parseBatchFromSheetName(sheetName) || importDefaults.batch;
+
+          const processedData = bodyRows
+          .map((row: any[], idx: number) => {
+            const enrollmentNumber = normalizeEnrollment(getField(row, 'enrollment'));
+            const firstName = getField(row, 'first name');
+            const lastName = getField(row, 'last name');
+            const nameFromSplit = [firstName, lastName].filter(Boolean).join(' ').trim();
+            const name = getField(row, 'name') || nameFromSplit;
+            const department = getField(row, 'department');
+            const batchRaw = getField(row, 'batch');
+              const batch = normalizeBatch(batchRaw) || sheetBatchDefault;
+            const mobile = getField(row, 'mobile');
+            const email = getField(row, 'email');
+            const section = getField(row, 'section');
+
+              const student = {
+              rollNumber: String(idx + 1),
+              name,
+              email: email || '',
+              enrollmentNumber,
+              section: section || importDefaults.section || '',
+              department: department || importDefaults.department,
+                batch: batch,
+              semester: Number(importDefaults.semester || 1),
+              mobile,
+                rowIndex: headerRowIndex + 2 + idx
+            };
+
+            const errors: string[] = [];
+            if (!student.name) errors.push('Name');
+            if (!student.enrollmentNumber) errors.push('Enrollment No.');
+            if (!student.department) errors.push('Department');
+            if (!student.batch) errors.push('Batch');
+              return { ...student, errors, __sheet: sheetName };
+            })
+          // Drop empty rows (no name and no enrollment)
+            .filter((r: any) => r.name || r.enrollmentNumber);
+
+        // Deduplicate by enrollment number
+          const seen = new Set<string>();
+          const localDuplicates: any[] = [];
+          const deduped = processedData.filter(item => {
+            const key = (item.enrollmentNumber || '').toLowerCase();
+            if (!key) return false;
+            if (seen.has(key)) { localDuplicates.push(item); return false; }
+            seen.add(key);
+            return item.errors.length === 0;
+          });
+          const invalidData = processedData.filter(item => item.errors.length > 0 || !item.enrollmentNumber);
+
+          allProcessed.push(...deduped);
+          allInvalid.push(...invalidData);
+          perSheetStats.push({ name: sheetName, ok: deduped.length, skipped: invalidData.length + localDuplicates.length, totalRowsInclHeader });
+          allDuplicates.push(...localDuplicates.map((d: any) => ({ ...d, reason: 'Duplicate within sheet' })));
+        };
+
+        // Process every sheet in the workbook
+        sheetNames.forEach(name => processOneSheet(name));
+
+        // Global dedupe across sheets by enrollment number
+        const globalSeen = new Set<string>();
+        const finalData = allProcessed.filter(item => {
+          const key = (item.enrollmentNumber || '').toLowerCase();
+          if (!key) return false;
+          if (globalSeen.has(key)) { allDuplicates.push({ ...item, reason: 'Duplicate across sheets' }); return false; }
+          globalSeen.add(key);
+          return true;
         });
 
-        const validData = processedData.filter(item => item.errors.length === 0);
-        const invalidData = processedData.filter(item => item.errors.length > 0);
-
-        if (invalidData.length > 0) {
-          setUploadStatus('error');
-          setUploadMessage(`Found ${invalidData.length} rows with missing data. Please check rows: ${invalidData.map(item => item.rowIndex).join(', ')}`);
-          return;
-        }
-
-        setExcelData(validData);
+        setExcelData(finalData);
         setUploadStatus('success');
-        setUploadMessage(`Successfully processed ${validData.length} student records. Ready to import.`);
+        const totalSkipped = allInvalid.length + allDuplicates.length;
+        const overallRowsInclHeader = perSheetStats.reduce((sum, s) => sum + s.totalRowsInclHeader, 0);
+        const per = perSheetStats.map(s => `${s.name}: ${s.ok} ok, ${s.skipped} skipped, ${s.totalRowsInclHeader} rows incl. header`).join(' | ');
+        const defaultsUsed = (importDefaults.department || importDefaults.batch || importDefaults.section) ? ' Defaults applied to missing fields.' : '';
+        if (finalData.length === 0 && totalSkipped > 0) {
+          const sample = allInvalid.slice(0, 3).map((x: any) => `Row ${x.rowIndex}: missing ${x.errors.join(', ')}`).join('; ');
+          setUploadMessage(`Processed 0 students across ${sheetNames.length} sheets. Skipped ${totalSkipped}. ${per}. Total rows incl. headers: ${overallRowsInclHeader}. Examples: ${sample}${allInvalid.length > 3 ? ' ...' : ''}${defaultsUsed}`);
+        } else {
+          setUploadMessage(`Processed ${finalData.length} students across ${sheetNames.length} sheets. Skipped ${totalSkipped}. ${per}. Total rows incl. headers: ${overallRowsInclHeader}.${defaultsUsed}`);
+        }
+        setSkippedRows(allInvalid);
+        setDuplicateRows(allDuplicates);
       } catch (error) {
         setUploadStatus('error');
         setUploadMessage('Error processing Excel file. Please check the file format.');
@@ -378,6 +601,53 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
             <Upload className="w-5 h-5" />
             Upload Excel
           </button>
+          {user?.role === 'admin' && (
+            <button
+              onClick={async () => {
+                if (isRemovingDuplicates) return;
+                // Build duplicates by composite key: name + enrollment + batch (all non-empty)
+                const normalize = (v: any) => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
+                const seen = new Set<string>();
+                const duplicates: Student[] = [];
+                students.forEach((s) => {
+                  const name = normalize(s.name);
+                  const enr = normalize(s.enrollmentNumber);
+                  const batch = normalize((s as any).batch || s.batch);
+                  if (!name || !enr || !batch) return; // require all 3 present
+                  const key = `${name}__${enr}__${batch}`;
+                  if (seen.has(key)) duplicates.push(s);
+                  else seen.add(key);
+                });
+
+                if (duplicates.length === 0) {
+                  window.alert('No duplicate students found where Name, Enrollment No., and Batch all match.');
+                  return;
+                }
+                const confirm = window.confirm(`This will delete ${duplicates.length} duplicate entries (matching Name + Enrollment No. + Batch), keeping the first occurrence. Proceed?`);
+                if (!confirm) return;
+
+                setIsRemovingDuplicates(true);
+                let deleted = 0;
+                let failed = 0;
+                for (const dup of duplicates) {
+                  try {
+                    await onDeleteStudent(dup.id);
+                    deleted++;
+                  } catch (e) {
+                    failed++;
+                  }
+                }
+                setIsRemovingDuplicates(false);
+                window.alert(`Deleted ${deleted} duplicate entries.${failed ? ` ${failed} failed.` : ''}`);
+              }}
+              disabled={isRemovingDuplicates}
+              className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${isRemovingDuplicates ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-700'}`}
+              title="Remove duplicate students by Enrollment No."
+            >
+              <Trash2 className="w-5 h-5" />
+              {isRemovingDuplicates ? 'Removing...' : 'Remove Duplicates'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -486,7 +756,7 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm disabled:bg-gray-50 disabled:text-gray-500"
                 >
                   <option value="">All Batches</option>
-                  {batches.map((batch) => (
+                  {batchOptions.map((batch) => (
                     <option key={batch} value={batch}>{batch}</option>
                   ))}
                 </select>
@@ -548,18 +818,48 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
             )}
           </div>
 
-          {/* Filter Information Display */}
-          {user?.role === 'admin' && filterSchoolId && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <div className="text-sm text-blue-800">
-                <strong>Showing students from:</strong> {schools.find(s => s.id === filterSchoolId)?.name}
-                {filterDepartment && ` - ${filterDepartment}`}
-                {filterBatch && ` - Batch ${filterBatch}`}
-                {filterSection && ` - Section ${filterSection}`}
-                {searchTerm && ` (searching: "${searchTerm}")`}
+          {/* Filter Information Display with dynamic counts */}
+          {user?.role === 'admin' && filterSchoolId && (() => {
+            const schoolObj = schools.find(s => s.id === filterSchoolId);
+            const schoolName = schoolObj?.name || '';
+            const inSchool = students.filter(s => (s.school || getSchoolFromDepartment(s.department)) === schoolName);
+            const outsideSchool = students.filter(s => (s.school || getSchoolFromDepartment(s.department)) !== schoolName);
+            const countSchool = inSchool.length;
+            const countDepartment = filterDepartment ? inSchool.filter(s => s.department === filterDepartment).length : 0;
+            const baseForBatch = filterDepartment ? inSchool.filter(s => s.department === filterDepartment) : inSchool;
+            const countBatch = filterBatch ? baseForBatch.filter(s => s.batch === filterBatch).length : 0;
+            const baseForSection = filterBatch ? baseForBatch.filter(s => s.batch === filterBatch) : baseForBatch;
+            const countSection = filterSection ? baseForSection.filter(s => (s.section || '-') === filterSection).length : 0;
+            return (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <div className="text-sm text-blue-800 flex items-center justify-between gap-2">
+                  <div>
+                    <strong>Showing students from:</strong> {schoolName}
+                    {filterDepartment && ` - ${filterDepartment}`}
+                    {filterBatch && ` - Batch ${filterBatch}`}
+                    {filterSection && ` - Section ${filterSection}`}
+                    {searchTerm && ` (searching: "${searchTerm}")`}
+                  </div>
+                  <div className="shrink-0 flex items-center gap-3 text-xs">
+                    <span>School: {countSchool}</span>
+                    {filterDepartment && <span>| Dept: {countDepartment}</span>}
+                    {filterBatch && <span>| Batch: {countBatch}</span>}
+                    {filterSection && <span>| Section: {countSection}</span>}
+                    {outsideSchool.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowOutsideModal(true)}
+                        className="ml-3 px-2 py-1 rounded border border-blue-300 text-blue-800 bg-white hover:bg-blue-50"
+                        title="View students that don't belong to this school"
+                      >
+                        {outsideSchool.length} outside
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
       </div>
 
@@ -575,6 +875,7 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Enrollment No.</th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Section</th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Department</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Mobile</th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Batch</th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Semester</th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Actions</th>
@@ -589,14 +890,15 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
                   </td>
                 </tr>
               ) : (
-                filteredStudents.map((student) => (
+                filteredStudents.map((student, index) => (
                   <tr key={student.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">{student.rollNumber}</td>
+                    <td className="px-6 py-4 text-sm font-medium text-gray-900">{index + 1}</td>
                     <td className="px-6 py-4 text-sm font-medium text-gray-900">{student.name}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600">{student.email}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">{(student.email && student.email.trim()) ? student.email : '-'}</td>
                     <td className="px-6 py-4 text-sm text-gray-900">{student.enrollmentNumber || '-'}</td>
                     <td className="px-6 py-4 text-sm text-gray-900">{student.section || '-'}</td>
                     <td className="px-6 py-4 text-sm text-gray-900">{student.department}</td>
+                    <td className="px-6 py-4 text-sm text-gray-900">{(student as any).mobile || '-'}</td>
                     <td className="px-6 py-4 text-sm text-gray-900">{student.batch}</td>
                     <td className="px-6 py-4 text-sm text-gray-900">{student.semester}</td>
                     <td className="px-6 py-4 text-sm">
@@ -676,6 +978,16 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
                   />
                 </div>
                 <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Mobile</label>
+                  <input
+                    type="text"
+                    value={formData.mobile}
+                    onChange={(e) => setFormData({ ...formData, mobile: e.target.value.replace(/[^0-9]/g, '').slice(0, 15) })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    placeholder="e.g., 9876543210"
+                  />
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Section</label>
                   <input
                     type="text"
@@ -688,18 +1000,95 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Batch</label>
+                  <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+                    <div className="flex items-center border border-gray-300 rounded-lg focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 focus-within:ring-offset-white focus-within:border-transparent">
+                      <input
+                        type="text"
+                        value={newBatch}
+                        onChange={(e) => {
+                          // Only allow numbers and limit to 2 digits
+                          const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 2);
+                          setNewBatch(value);
+                        }}
+                        placeholder="22"
+                        className="w-8 px-2 py-2 text-center border-0 focus:ring-0 focus:outline-none text-sm"
+                        maxLength={2}
+                      />
+                      <span className="text-gray-500 text-sm">-</span>
+                      <input
+                        type="text"
+                        value={newBatchEnd}
+                        onChange={(e) => {
+                          // Only allow numbers and limit to 2 digits
+                          const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 2);
+                          setNewBatchEnd(value);
+                        }}
+                        placeholder="26"
+                        className="w-8 px-2 py-2 text-center border-0 focus:ring-0 focus:outline-none text-sm"
+                        maxLength={2}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!newBatch || !newBatchEnd || !formData.department) return;
+                        const formattedBatch = `20${newBatch}-20${newBatchEnd}`;
+                        if (!(batchOptions || []).includes(formattedBatch)) {
+                          const updated = [...(batchOptions || []), formattedBatch];
+                          setBatchOptions(updated);
+                          LocalStorageService.saveBatchOptions(formData.department, updated);
+                        }
+                        setFormData({ ...formData, batch: formattedBatch });
+                        setNewBatch('');
+                        setNewBatchEnd('');
+                      }}
+                      className="shrink-0 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                    >
+                      Add
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Format: 20XX-20XX (e.g., 22-26 for 2022-2026)</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Browse Batches</label>
                   <select
-                    required
                     value={formData.batch}
                     onChange={(e) => setFormData({ ...formData, batch: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-0 text-sm"
                   >
-                    <option value="">Select Batch</option>
-                    {batches.map((batch) => (
-                      <option key={batch} value={batch}>{batch}</option>
+                    <option value="">{(batchOptions || []).length === 0 ? 'No batches yet' : 'Select a batch'}</option>
+                    {(batchOptions || []).map((b) => (
+                      <option key={b} value={b}>{b}</option>
                     ))}
                   </select>
                 </div>
+
+                {(batchOptions || []).length > 0 && (
+                  <div className="mt-2">
+                    <div className="flex flex-wrap gap-2">
+                      {(batchOptions || []).map((b) => (
+                        <div key={b} className="flex items-center gap-1 bg-white text-gray-700 px-2 py-1 rounded-full text-xs border border-gray-200">
+                          <span>{b}</span>
+                          <button 
+                            type="button" 
+                            className="ml-1" 
+                            title="Delete batch" 
+                            onClick={() => {
+                              if (!formData.department) return;
+                              const updated = (batchOptions || []).filter(x => x !== b);
+                              setBatchOptions(updated);
+                              LocalStorageService.saveBatchOptions(formData.department, updated);
+                              if (formData.batch === b) setFormData({ ...formData, batch: '' });
+                            }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Semester</label>
                   <select
@@ -853,6 +1242,52 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
               <p className="text-gray-600 text-sm mt-1">Upload an Excel file with student data to import multiple records at once</p>
             </div>
             <div className="p-6 space-y-6">
+              {/* Optional defaults to fill missing columns */}
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <h4 className="font-semibold text-gray-900 mb-2">Optional Defaults (applied when a column is missing)</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Department (default)</label>
+                    <input
+                      type="text"
+                      value={importDefaults.department}
+                      onChange={(e) => setImportDefaults({ ...importDefaults, department: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      placeholder="e.g., Computer Science & Engineering"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Batch (default)</label>
+                    <input
+                      type="text"
+                      value={importDefaults.batch}
+                      onChange={(e) => setImportDefaults({ ...importDefaults, batch: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      placeholder="e.g., 2022-26"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Section (default)</label>
+                    <input
+                      type="text"
+                      value={importDefaults.section}
+                      onChange={(e) => setImportDefaults({ ...importDefaults, section: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      placeholder="e.g., A"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Semester (default)</label>
+                    <select
+                      value={importDefaults.semester}
+                      onChange={(e) => setImportDefaults({ ...importDefaults, semester: parseInt(e.target.value) || 1 })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    >
+                      {[1,2,3,4,5,6,7,8].map(s => (<option key={s} value={s}>{s}</option>))}
+                    </select>
+                  </div>
+                </div>
+              </div>
               {/* Template Download */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <div className="flex items-center gap-3 mb-3">
@@ -909,6 +1344,88 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
                   'bg-gray-50 text-gray-700 border border-gray-200'
                 }`}>
                   {uploadMessage}
+                </div>
+              )}
+
+              {/* Skipped rows report */}
+              {skippedRows.length > 0 && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-semibold text-yellow-900">Skipped Rows Report ({skippedRows.length})</h4>
+                    <button
+                      onClick={() => setShowSkipped((v) => !v)}
+                      className="text-xs px-2 py-1 rounded border border-yellow-300 text-yellow-800 bg-white hover:bg-yellow-50"
+                    >
+                      {showSkipped ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                  {showSkipped && (
+                    <div className="mt-3 max-h-40 overflow-y-auto text-xs">
+                      <table className="w-full">
+                        <thead className="bg-yellow-100">
+                          <tr>
+                            <th className="px-2 py-1 text-left">Sheet</th>
+                            <th className="px-2 py-1 text-left">Row</th>
+                            <th className="px-2 py-1 text-left">Enrollment</th>
+                            <th className="px-2 py-1 text-left">Name</th>
+                            <th className="px-2 py-1 text-left">Missing</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {skippedRows.map((r: any, idx: number) => (
+                            <tr key={idx} className="border-b border-yellow-200">
+                              <td className="px-2 py-1">{r.__sheet}</td>
+                              <td className="px-2 py-1">{r.rowIndex}</td>
+                              <td className="px-2 py-1">{r.enrollmentNumber || '-'}</td>
+                              <td className="px-2 py-1">{r.name || '-'}</td>
+                              <td className="px-2 py-1">{r.errors?.join(', ')}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Duplicates report */}
+              {duplicateRows.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-semibold text-red-900">Duplicate Entries ({duplicateRows.length})</h4>
+                    <button
+                      onClick={() => setShowDuplicates((v) => !v)}
+                      className="text-xs px-2 py-1 rounded border border-red-300 text-red-800 bg-white hover:bg-red-50"
+                    >
+                      {showDuplicates ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                  {showDuplicates && (
+                    <div className="mt-3 max-h-40 overflow-y-auto text-xs">
+                      <table className="w-full">
+                        <thead className="bg-red-100">
+                          <tr>
+                            <th className="px-2 py-1 text-left">Sheet</th>
+                            <th className="px-2 py-1 text-left">Row</th>
+                            <th className="px-2 py-1 text-left">Enrollment</th>
+                            <th className="px-2 py-1 text-left">Name</th>
+                            <th className="px-2 py-1 text-left">Reason</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {duplicateRows.map((r: any, idx: number) => (
+                            <tr key={idx} className="border-b border-red-200">
+                              <td className="px-2 py-1">{r.__sheet}</td>
+                              <td className="px-2 py-1">{r.rowIndex}</td>
+                              <td className="px-2 py-1">{r.enrollmentNumber || '-'}</td>
+                              <td className="px-2 py-1">{r.name || '-'}</td>
+                              <td className="px-2 py-1">{r.reason}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1017,6 +1534,51 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
                   Delete Student
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Outside School Modal */}
+      {showOutsideModal && filterSchoolId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-2xl max-h-[80vh] overflow-hidden">
+            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Students outside selected school</h3>
+              <button onClick={() => setShowOutsideModal(false)} className="text-gray-600 hover:text-gray-800">✕</button>
+            </div>
+            <div className="p-4 overflow-y-auto max-h-[65vh] text-sm">
+              {(() => {
+                const schoolObj = schools.find(s => s.id === filterSchoolId);
+                const schoolName = schoolObj?.name || '';
+                const outside = students.filter(s => (s.school || getSchoolFromDepartment(s.department)) !== schoolName);
+                if (outside.length === 0) return <div className="text-gray-600">None found.</div>;
+                return (
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left">Name</th>
+                        <th className="px-3 py-2 text-left">Enrollment</th>
+                        <th className="px-3 py-2 text-left">Department</th>
+                        <th className="px-3 py-2 text-left">School (derived)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {outside.map((s, i) => (
+                        <tr key={s.id || i} className="border-b">
+                          <td className="px-3 py-2">{s.name}</td>
+                          <td className="px-3 py-2">{s.enrollmentNumber || '-'}</td>
+                          <td className="px-3 py-2">{s.department || '-'}</td>
+                          <td className="px-3 py-2">{s.school || getSchoolFromDepartment(s.department) || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                );
+              })()}
+            </div>
+            <div className="p-4 border-t border-gray-200 flex justify-end">
+              <button onClick={() => setShowOutsideModal(false)} className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200">Close</button>
             </div>
           </div>
         </div>

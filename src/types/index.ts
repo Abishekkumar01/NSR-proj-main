@@ -11,6 +11,7 @@ export interface Student {
   semester: number;
   enrollmentNumber?: string;
   section?: string;
+  mobile?: string;
   createdAt: Date;
 }
 

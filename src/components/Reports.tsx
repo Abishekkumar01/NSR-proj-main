@@ -336,20 +336,34 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
 
   const getGADistributionData = () => {
     // Use only GAs that exist either in scores within cohort or in assessment mappings within cohort
-    const mappingGAs = new Set(getGAMappingDistributionData().map(m => m.name));
+    const mapping = getGAMappingDistributionData();
+    const avgWeightByGA = mapping.reduce((acc, m) => {
+      acc[m.name] = m.value || 0; // average GA weightage across filtered assessments
+      return acc;
+    }, {} as Record<string, number>);
+
+    const mappingGAs = new Set(mapping.map(m => m.name));
+
+    // Calculate average GA score (0-100 scaled by GA weightage already) for cohort
     const scoreBasedRaw = graduateAttributes.map(ga => {
       const scores = gaReports
         .map(report => report.gaScores[ga.code]?.averageScore || 0)
         .filter(score => score > 0);
-      const average = scores.length > 0 
+      const averageScore = scores.length > 0
         ? scores.reduce((sum, score) => sum + score, 0) / scores.length
         : 0;
-      return { name: ga.code, value: average, count: scores.length };
+
+      // Normalize by average GA weightage to show % achievement
+      const avgWeight = avgWeightByGA[ga.code] || 0;
+      const normalizedPercent = avgWeight > 0 ? (averageScore / avgWeight) * 100 : 0;
+
+      return { name: ga.code, value: normalizedPercent, count: scores.length, avgWeight };
     });
+
     const scoreBased = scoreBasedRaw.filter(s => s.count > 0);
     if (scoreBased.length > 0) return scoreBased;
     // If no scores, show only GAs present in current assessments
-    return getGAMappingDistributionData().filter(g => mappingGAs.has(g.name));
+    return mapping.filter(g => mappingGAs.has(g.name));
   };
 
   const getAssessmentTypeData = () => {
@@ -683,9 +697,11 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="name" />
                   <YAxis />
-                  <Tooltip />
+                  <Tooltip 
+                    formatter={(value: number) => [`${Number(value).toFixed(2)}%`, 'Average Achievement %']}
+                  />
                   <Legend />
-                  <Bar dataKey="value" fill="#8884D8" name="Average Score" />
+                  <Bar dataKey="value" fill="#8884D8" name="Average Achievement %" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -943,9 +959,11 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="name" />
                   <YAxis />
-                  <Tooltip />
+                  <Tooltip 
+                    formatter={(value: number) => [`${Number(value).toFixed(2)}%`, 'Average Achievement %']}
+                  />
                   <Legend />
-                  <Bar dataKey="value" fill="#8884D8" name="Average Score / Avg Weightage" />
+                  <Bar dataKey="value" fill="#8884D8" name="Average Achievement %" />
                 </BarChart>
               </ResponsiveContainer>
             </div>

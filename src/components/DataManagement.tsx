@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Download, Upload, Database, Trash2, RefreshCw, Info, CheckCircle, AlertCircle } from 'lucide-react';
 import { LocalStorageService } from '../lib/localStorage';
 import { optimizedFirebase } from '../lib/optimizedFirebase';
+import { studentService } from '../lib/studentService';
 
 export function DataManagement() {
   const [storageInfo, setStorageInfo] = useState({ used: 0, available: 0, percentage: 0 });
@@ -109,6 +110,18 @@ export function DataManagement() {
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const handleDeleteAllStudents = async () => {
+    if (!window.confirm('This will permanently delete ALL students from Firebase. Proceed?')) return;
+    try {
+      const count = await studentService.deleteAllStudents();
+      showMessage('success', `Deleted ${count} students from Firebase`);
+      // Optional: trigger a soft refresh after a short delay so counts update
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (e) {
+      showMessage('error', 'Failed to delete students');
+    }
   };
 
   return (
@@ -249,6 +262,22 @@ export function DataManagement() {
           >
             <Trash2 className="w-4 h-4" />
             Clear All Data
+          </button>
+        </div>
+
+        {/* Danger Zone: Delete ALL students */}
+        <div className="bg-white rounded-xl shadow-sm border border-red-200 p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <Trash2 className="w-6 h-6 text-red-600" />
+            <h3 className="font-semibold text-gray-900">Danger: Delete ALL Students (Firebase)</h3>
+          </div>
+          <p className="text-sm text-gray-600 mb-4">Irreversible. Deletes all documents in the students collection.</p>
+          <button
+            onClick={handleDeleteAllStudents}
+            className="w-full bg-red-700 text-white px-4 py-2 rounded-lg hover:bg-red-800 transition-colors flex items-center justify-center gap-2"
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete ALL Students
           </button>
         </div>
       </div>

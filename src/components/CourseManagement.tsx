@@ -1,18 +1,19 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Plus, Search, Edit2, Trash2, BookOpen, School } from 'lucide-react';
-import { Course, Faculty } from '../types';
+import { Course, Faculty, Student } from '../types';
 import { schools, School as SchoolType } from '../data/schools';
 import { LocalStorageService } from '../lib/localStorage';
 
 interface CourseManagementProps {
   courses: Course[];
   faculty: Faculty[];
+  students: Student[];
   onAddCourse: (course: Omit<Course, 'id'>) => void;
   onUpdateCourse: (id: string, course: Partial<Course>) => void;
   onDeleteCourse: (id: string) => void;
 }
 
-export function CourseManagement({ courses, faculty, onAddCourse, onUpdateCourse, onDeleteCourse }: CourseManagementProps) {
+export function CourseManagement({ courses, faculty, students, onAddCourse, onUpdateCourse, onDeleteCourse }: CourseManagementProps) {
   const [showModal, setShowModal] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -66,9 +67,8 @@ export function CourseManagement({ courses, faculty, onAddCourse, onUpdateCourse
   const [editingPOIndex, setEditingPOIndex] = useState<number | null>(null);
   const [editPOForm, setEditPOForm] = useState<{ poCode: string; poName: string }>({ poCode: '', poName: '' });
 
-  // Batch options
+  // Batch options (synced with Student Management via LocalStorageService)
   const [batchOptions, setBatchOptions] = useState<string[]>([]);
-  const [newBatch, setNewBatch] = useState('');
 
   // Advanced filters (must be declared before effects that reference them)
   const [filterSchoolId, setFilterSchoolId] = useState<string>('');
@@ -90,10 +90,18 @@ export function CourseManagement({ courses, faculty, onAddCourse, onUpdateCourse
   // Whenever department changes while modal is active, load that department's batches
   useEffect(() => {
     if (showModal && formData.department) {
-      const batches = LocalStorageService.getBatchOptions(formData.department) || [];
+      let batches = LocalStorageService.getBatchOptions(formData.department) || [];
+      // Fallback: derive from existing students if none stored yet
+      if ((!batches || batches.length === 0) && students && students.length > 0) {
+        batches = Array.from(new Set(
+          students
+            .filter(s => s.department === formData.department && s.batch)
+            .map(s => s.batch)
+        )).sort();
+      }
       setBatchOptions(batches);
     }
-  }, [showModal, formData.department]);
+  }, [showModal, formData.department, students]);
 
   // Save to localStorage whenever courses change
   useEffect(() => {
@@ -688,8 +696,8 @@ export function CourseManagement({ courses, faculty, onAddCourse, onUpdateCourse
             </div>
             <form onSubmit={handleSubmit} className="flex flex-col">
               <div className="p-4 space-y-6">
-                {/* Top row: Course Code, Course Name, Department, Batch (add), Dropdown */}
-                <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+                {/* Top row: Course Code, Course Name, Department, Batch */}
+                <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Course Code</label>
                     <input
@@ -724,50 +732,20 @@ export function CourseManagement({ courses, faculty, onAddCourse, onUpdateCourse
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Batch</label>
-                    <div className="grid grid-cols-[1fr_auto] items-center gap-2">
-                      <input
-                        type="text"
-                        value={newBatch}
-                        onChange={(e) => setNewBatch(e.target.value)}
-                        placeholder="e.g., 2022-2026"
-                        className="min-w-0 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white focus:border-transparent text-sm"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => { const v = newBatch.trim(); if (!v || !formData.department) return; if (!(batchOptions || []).includes(v)) { const updated = [...(batchOptions || []), v]; setBatchOptions(updated); LocalStorageService.saveBatchOptions(formData.department, updated); } setFormData({ ...formData, batch: v }); setNewBatch(''); }}
-                        className="shrink-0 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-                      >
-                        Add
-                      </button>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Browse Batches</label>
                     <select
-                      value={''}
-                      onChange={() => { /* browse-only; no-op */ }}
+                      value={formData.batch}
+                      onChange={(e) => setFormData({ ...formData, batch: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-0 text-sm"
                     >
-                      <option value="" disabled>{(batchOptions || []).length === 0 ? 'No batches yet' : 'View batch list'}</option>
+                      <option value="">{(batchOptions || []).length === 0 ? 'No batches (create in Student Management)' : 'Select batch'}</option>
                       {(batchOptions || []).map((b) => (
                         <option key={b} value={b}>{b}</option>
                       ))}
                     </select>
+                    <p className="text-xs text-gray-500 mt-1">Batches are managed in Student Management.</p>
                   </div>
                 </div>
 
-                {(batchOptions || []).length > 0 && (
-                  <div className="mt-2">
-                    <div className="flex flex-wrap gap-2">
-                      {(batchOptions || []).map((b) => (
-                        <div key={b} className="flex items-center gap-1 bg-white text-gray-700 px-2 py-1 rounded-full text-xs border border-gray-200">
-                          <span>{b}</span>
-                          <button type="button" className="ml-1" title="Delete batch" onClick={() => { if (!formData.department) return; const updated = (batchOptions || []).filter(x => x !== b); setBatchOptions(updated); LocalStorageService.saveBatchOptions(formData.department, updated); if (formData.batch === b) setFormData({ ...formData, batch: '' }); }}>×</button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
                 {/* Second row: Semester, Credits, Faculty Name */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
