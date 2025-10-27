@@ -24,6 +24,7 @@ export function GAMapping({
   const [showMarkEntry, setShowMarkEntry] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [marksData, setMarksData] = useState<{[studentId: string]: number}>({});
+  const [questionMarks, setQuestionMarks] = useState<{[studentId: string]: number[]}>({});
   const [filterSchoolId, setFilterSchoolId] = useState<string>('');
   const [filterDepartment, setFilterDepartment] = useState<string>('');
   const [filterBatch, setFilterBatch] = useState<string>('');
@@ -86,7 +87,7 @@ export function GAMapping({
   }, [filteredStudents]);
 
   // Auto-save marks to localStorage with debouncing
-  const autoSaveMarks = useCallback((assessmentId: string, marks: {[studentId: string]: number}) => {
+  const autoSaveMarks = useCallback((assessmentId: string, marks: {[studentId: string]: number}, qMarks: {[studentId: string]: number[]}) => {
     if (autoSaveTimeout) {
       clearTimeout(autoSaveTimeout);
     }
@@ -96,7 +97,9 @@ export function GAMapping({
     const timeout = setTimeout(() => {
       try {
         const key = `unsaved_marks_${assessmentId}`;
+        const questionKey = `unsaved_marks_${assessmentId}_questions`;
         localStorage.setItem(key, JSON.stringify(marks));
+        localStorage.setItem(questionKey, JSON.stringify(qMarks));
         console.log('Auto-saved marks to localStorage');
         setIsAutoSaving(false);
       } catch (error) {
@@ -124,11 +127,17 @@ export function GAMapping({
   const clearUnsavedMarks = useCallback((assessmentId: string) => {
     try {
       const key = `unsaved_marks_${assessmentId}`;
+      const questionKey = `unsaved_marks_${assessmentId}_questions`;
       localStorage.removeItem(key);
+      localStorage.removeItem(questionKey);
     } catch (error) {
       console.error('Error clearing unsaved marks:', error);
     }
   }, []);
+
+  // Question mark distribution
+  const questionMaxMarks = [5, 5, 5, 5, 5, 9, 9, 9, 12];
+  const totalMaxMarks = questionMaxMarks.reduce((sum, marks) => sum + marks, 0);
 
   const handleAssessmentSelect = (assessment: Assessment) => {
     setSelectedAssessment(assessment);
@@ -136,6 +145,7 @@ export function GAMapping({
     
     // Initialize marks data with existing marks AND unsaved marks
     const initialMarks: {[studentId: string]: number} = {};
+    const initialQuestionMarks: {[studentId: string]: number[]} = {};
     
     // First load existing saved marks
     students.forEach(student => {
@@ -144,14 +154,19 @@ export function GAMapping({
       );
       if (existingAssessment && existingAssessment.marksObtained > 0) {
         initialMarks[student.id] = existingAssessment.marksObtained;
+        // Initialize question marks as zeros
+        initialQuestionMarks[student.id] = [0, 0, 0, 0, 0, 0, 0, 0, 0];
       }
     });
     
     // Then load unsaved marks from localStorage (this will override saved marks if any)
     const unsavedMarks = loadUnsavedMarks(assessment.id);
+    const unsavedQuestionMarks = loadUnsavedMarks(`${assessment.id}_questions`);
     Object.assign(initialMarks, unsavedMarks);
+    Object.assign(initialQuestionMarks, unsavedQuestionMarks);
     
     setMarksData(initialMarks);
+    setQuestionMarks(initialQuestionMarks);
   };
 
   const calculateGAScore = (marks: number, maxMarks: number, gaMapping: Assessment['gaMapping']) => {
@@ -224,6 +239,7 @@ export function GAMapping({
       setShowMarkEntry(false);
       setSelectedAssessment(null);
       setMarksData({});
+      setQuestionMarks({});
       
       console.log('All marks saved successfully!');
     } catch (error) {
@@ -232,6 +248,7 @@ export function GAMapping({
       setShowMarkEntry(false);
       setSelectedAssessment(null);
       setMarksData({});
+      setQuestionMarks({});
     } finally {
       setIsSubmitting(false);
     }
@@ -435,6 +452,7 @@ export function GAMapping({
                     setShowMarkEntry(false);
                     setSelectedAssessment(null);
                     setMarksData({});
+                    setQuestionMarks({});
                   }}
                   className="px-6 py-3 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-lg font-medium"
                 >
@@ -553,80 +571,95 @@ export function GAMapping({
               <table className="w-full">
                 <thead>
                   <tr className="border-b-2 border-gray-300">
-                    <th className="px-6 py-4 text-left text-lg font-semibold text-gray-900">Roll Number</th>
-                    <th className="px-6 py-4 text-left text-lg font-semibold text-gray-900">Student Name</th>
-                    <th className="px-6 py-4 text-left text-lg font-semibold text-gray-900">Marks Obtained</th>
-                    <th className="px-6 py-4 text-left text-lg font-semibold text-gray-900">Percentage</th>
-                    <th className="px-6 py-4 text-left text-lg font-semibold text-gray-900">Status</th>
+                    <th className="px-3 py-4 text-left text-base font-semibold text-gray-900 sticky left-0 bg-white z-10">Roll Number</th>
+                    <th className="px-3 py-4 text-left text-base font-semibold text-gray-900 sticky left-16 bg-white z-10">Student Name</th>
+                    <th className="px-2 py-4 text-center text-sm font-semibold text-gray-900 min-w-16">Q1<br />(5)</th>
+                    <th className="px-2 py-4 text-center text-sm font-semibold text-gray-900 min-w-16">Q2<br />(5)</th>
+                    <th className="px-2 py-4 text-center text-sm font-semibold text-gray-900 min-w-16">Q3<br />(5)</th>
+                    <th className="px-2 py-4 text-center text-sm font-semibold text-gray-900 min-w-16">Q4<br />(5)</th>
+                    <th className="px-2 py-4 text-center text-sm font-semibold text-gray-900 min-w-16">Q5<br />(5)</th>
+                    <th className="px-2 py-4 text-center text-sm font-semibold text-gray-900 min-w-16">Q6<br />(9)</th>
+                    <th className="px-2 py-4 text-center text-sm font-semibold text-gray-900 min-w-16">Q7<br />(9)</th>
+                    <th className="px-2 py-4 text-center text-sm font-semibold text-gray-900 min-w-16">Q8<br />(9)</th>
+                    <th className="px-2 py-4 text-center text-sm font-semibold text-gray-900 min-w-16">Q9<br />(12)</th>
+                    <th className="px-3 py-4 text-center text-base font-semibold text-gray-900 bg-blue-50">Total</th>
+                    <th className="px-3 py-4 text-center text-base font-semibold text-gray-900">Percentage</th>
+                    <th className="px-3 py-4 text-center text-base font-semibold text-gray-900">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {filteredStudents.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-16 text-center">
+                      <td colSpan={13} className="px-6 py-16 text-center">
                         <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                         <p className="text-gray-500 text-lg">No students found</p>
                       </td>
                     </tr>
                   ) : (
                     filteredStudents.map((student) => {
-                      const marks = marksData[student.id];
-                      const percentage = selectedAssessment && marks ? (marks / selectedAssessment.maxMarks) * 100 : 0;
+                      const studentQmarks = questionMarks[student.id] || [0, 0, 0, 0, 0, 0, 0, 0, 0];
+                      const total = studentQmarks.reduce((sum, mark) => sum + (mark || 0), 0);
+                      const percentage = selectedAssessment && total ? (total / totalMaxMarks) * 100 : 0;
                       const existingAssessment = studentAssessments.find(
                         sa => sa.studentId === student.id && sa.assessmentId === selectedAssessment?.id
                       );
                       
                       return (
                         <tr key={student.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-6 py-4 text-base font-medium text-gray-900">{student.rollNumber}</td>
-                          <td className="px-6 py-4 text-base text-gray-900">{student.name}</td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-3">
+                          <td className="px-3 py-4 text-base font-medium text-gray-900 sticky left-0 bg-white">{student.rollNumber}</td>
+                          <td className="px-3 py-4 text-base text-gray-900 sticky left-16 bg-white">{student.name}</td>
+                          {questionMaxMarks.map((maxMark, index) => (
+                            <td key={index} className="px-2 py-3">
                               <input
                                 type="number"
                                 min="0"
-                                max={selectedAssessment?.maxMarks || 100}
-                                value={marks || ''}
+                                max={maxMark}
+                                value={studentQmarks[index] || ''}
                                 onChange={(e) => {
                                   const value = e.target.value;
-                                  const newMarksData = {
-                                    ...marksData,
-                                    [student.id]: value === '' ? undefined : parseFloat(value) || 0
-                                  };
+                                  const newMarks = [...studentQmarks];
+                                  newMarks[index] = value === '' ? 0 : Math.min(parseFloat(value) || 0, maxMark);
+                                  
+                                  const newQuestionMarks = { ...questionMarks, [student.id]: newMarks };
+                                  const newTotal = newMarks.reduce((sum, mark) => sum + (mark || 0), 0);
+                                  const newMarksData = { ...marksData, [student.id]: newTotal };
+                                  
+                                  setQuestionMarks(newQuestionMarks);
                                   setMarksData(newMarksData);
                                   
                                   // Auto-save to localStorage
                                   if (selectedAssessment) {
-                                    autoSaveMarks(selectedAssessment.id, newMarksData);
+                                    autoSaveMarks(selectedAssessment.id, newMarksData, newQuestionMarks);
                                   }
                                 }}
-                                className="w-32 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg"
-                                placeholder="Enter marks"
+                                className="w-14 px-2 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-sm"
                               />
-                              <span className="text-gray-500 text-lg">/ {selectedAssessment?.maxMarks}</span>
-                            </div>
+                            </td>
+                          ))}
+                          <td className="px-3 py-4 text-center bg-blue-50">
+                            <span className="font-bold text-lg text-blue-900">{total}/{totalMaxMarks}</span>
                           </td>
-                          <td className="px-6 py-4 text-base">
+                          <td className="px-3 py-4 text-center">
                             <span className={`font-semibold text-lg ${
                               percentage >= 80 ? 'text-green-600' :
                               percentage >= 60 ? 'text-yellow-600' :
                               percentage > 0 ? 'text-red-600' : 'text-gray-500'
                             }`}>
-                              {marks && marks > 0 ? `${percentage.toFixed(1)}%` : '-'}
+                              {total && total > 0 ? `${percentage.toFixed(1)}%` : '-'}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-base">
+                          <td className="px-3 py-4 text-center">
                             {existingAssessment ? (
-                              <span className="inline-flex items-center px-4 py-2 text-sm font-medium bg-green-100 text-green-800 rounded-full">
-                                <Trophy className="w-4 h-4 mr-2" />
+                              <span className="inline-flex items-center px-3 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
+                                <Trophy className="w-3 h-3 mr-1" />
                                 Evaluated
                               </span>
-                            ) : marks && marks > 0 ? (
-                              <span className="inline-flex items-center px-4 py-2 text-sm font-medium bg-blue-100 text-blue-800 rounded-full">
+                            ) : total && total > 0 ? (
+                              <span className="inline-flex items-center px-3 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
                                 Pending Save
                               </span>
                             ) : (
-                              <span className="text-gray-500 text-lg">Not entered</span>
+                              <span className="text-gray-500 text-sm">Not entered</span>
                             )}
                           </td>
                         </tr>

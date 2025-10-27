@@ -14,6 +14,41 @@ interface AssessmentManagementProps {
   students?: Student[];
 }
 
+// Helper functions for varied weightages
+function getVariedCOWeightage(courseId: string, coIndex: number, totalCOs: number, assessmentType: string): number {
+  const seed = courseId.charCodeAt(courseId.length - 1) + coIndex + assessmentType.charCodeAt(0);
+  const random = (seed * 9301 + 49297) % 233280 / 233280;
+  
+  const baseWeightage = {
+    'Quiz': 15,
+    'Assignment': 18,
+    'Mid-Term': 20,
+    'End-Term': 22
+  }[assessmentType] || 20;
+  
+  const variation = (random - 0.5) * 10;
+  const weightage = baseWeightage + variation;
+  
+  return Math.max(10, Math.min(30, Math.floor(weightage)));
+}
+
+function getVariedPOWeightage(courseId: string, poIndex: number, assessmentType: string): number {
+  const seed = courseId.charCodeAt(courseId.length - 1) + poIndex + assessmentType.charCodeAt(0);
+  const random = (seed * 9301 + 49297) % 233280 / 233280;
+  
+  const baseWeightage = {
+    'Quiz': 6,
+    'Assignment': 7,
+    'Mid-Term': 8,
+    'End-Term': 9
+  }[assessmentType] || 7;
+  
+  const variation = (random - 0.5) * 4;
+  const weightage = baseWeightage + variation;
+  
+  return Math.max(4, Math.min(12, Math.floor(weightage)));
+}
+
 export function AssessmentManagement({ 
   assessments, 
   courses, 
@@ -60,7 +95,37 @@ export function AssessmentManagement({
   const ensureEndTermGrid = (assessmentIndex: number) => {
     setEndTermCO((prev) => {
       if (prev[assessmentIndex]) return prev;
-      return { ...prev, [assessmentIndex]: { marks: Array(9).fill(null), coSelections: Array(9).fill(0).map(() => []) } };
+      
+      // Initialize with proper marks distribution and random empty boxes
+      const marksDistribution = [5, 5, 5, 5, 5, 9, 9, 9, 12];
+      const marks = Array(9).fill(null);
+      const coSelections = Array(9).fill(0).map(() => []);
+      
+      // Randomly leave one box empty from first 5 (5-mark questions)
+      const emptyBox5 = Math.floor(Math.random() * 5);
+      marks[emptyBox5] = null;
+      
+      // Randomly leave one box empty from next 3 (9-mark questions)
+      const emptyBox9 = 5 + Math.floor(Math.random() * 3);
+      marks[emptyBox9] = null;
+      
+      // Question 9 (12 marks) is compulsory, so leave it as is
+      
+      // Auto-assign COs to the boxes
+      if (coOptions.length > 0) {
+        const availableCOs = [...coOptions];
+        const shuffledCOs = availableCOs.sort(() => Math.random() - 0.5);
+        
+        // Assign COs to each box (except empty ones)
+        for (let i = 0; i < 9; i++) {
+          if (marks[i] !== null) {
+            const coIndex = i % shuffledCOs.length;
+            coSelections[i] = [shuffledCOs[coIndex].coCode];
+          }
+        }
+      }
+      
+      return { ...prev, [assessmentIndex]: { marks, coSelections } };
     });
   };
 
@@ -169,20 +234,40 @@ export function AssessmentManagement({
     if (editingAssessment) {
       // For editing, we'll handle single assessment updates
       const assessmentData = formData.assessments[0];
-      onUpdateAssessment(editingAssessment.id, {
+      const updateData: any = {
         courseId: formData.courseId,
         courseName: formData.courseName,
         ...assessmentData
-      });
+      };
+      
+      // Include End-Term CO marks if it's an End-Term assessment
+      if (assessmentData.type === 'End-Term' && endTermCO[0]) {
+        updateData.endTermCOMarks = {
+          marks: endTermCO[0].marks,
+          coSelections: endTermCO[0].coSelections
+        };
+      }
+      
+      onUpdateAssessment(editingAssessment.id, updateData);
     } else {
       // For new assessments, create multiple assessments for the same course
-      formData.assessments.forEach(assessmentData => {
-        onAddAssessment({
+      formData.assessments.forEach((assessmentData, index) => {
+        const addData: any = {
           courseId: formData.courseId,
           courseName: formData.courseName,
           name: assessmentData.type, // Use type as name
           ...assessmentData
-        });
+        };
+        
+        // Include End-Term CO marks if it's an End-Term assessment
+        if (assessmentData.type === 'End-Term' && endTermCO[index]) {
+          addData.endTermCOMarks = {
+            marks: endTermCO[index].marks,
+            coSelections: endTermCO[index].coSelections
+          };
+        }
+        
+        onAddAssessment(addData);
       });
     }
     resetForm();
@@ -236,6 +321,16 @@ export function AssessmentManagement({
     // Initialize End-Term grid when editing End-Term
     if (assessment.type === 'End-Term') {
       ensureEndTermGrid(0);
+      // Load existing End-Term CO marks if available
+      if (assessment.endTermCOMarks) {
+        setEndTermCO(prev => ({
+          ...prev,
+          [0]: {
+            marks: assessment.endTermCOMarks!.marks,
+            coSelections: assessment.endTermCOMarks!.coSelections
+          }
+        }));
+      }
     }
     setShowModal(true);
   };
@@ -253,9 +348,86 @@ export function AssessmentManagement({
         setCoOptions(deptCOs);
         const deptPOs = LocalStorageService.getPOOptions(course.department) || [];
         setPoOptions(deptPOs);
+        
+        // Auto-populate all COs and POs for the first assessment
+        const updatedAssessments = formData.assessments.map((assessment, index) => {
+          if (index === 0) {
+            // Auto-populate all COs with varied weightage
+            const coMappings: COMapping[] = deptCOs.map((co, coIndex) => ({
+              coCode: co.coCode,
+              coName: co.coName,
+              weightage: getVariedCOWeightage(courseId, coIndex, deptCOs.length, assessment.type)
+            }));
+            
+            // Auto-populate all POs with varied low weightage (4-12% each)
+            const poMappings: POMapping[] = deptPOs.map((po, poIndex) => ({
+              poCode: po.poCode,
+              poName: po.poName,
+              weightage: getVariedPOWeightage(courseId, poIndex, assessment.type)
+            }));
+            
+            return {
+              ...assessment,
+              coMapping: coMappings,
+              poMapping: poMappings
+            };
+          }
+          return assessment;
+        });
+        
+        setFormData({
+          ...formData,
+          courseId,
+          courseName: course.name,
+          assessments: updatedAssessments
+        });
       }
     }
   };
+
+  // Load CO and PO options when modal opens and course is selected
+  useEffect(() => {
+    if (showModal && formData.courseId) {
+      const course = courses.find(c => c.id === formData.courseId);
+      if (course && course.department) {
+        const deptCOs = LocalStorageService.getCOOptions(course.department) || [];
+        setCoOptions(deptCOs);
+        const deptPOs = LocalStorageService.getPOOptions(course.department) || [];
+        setPoOptions(deptPOs);
+        
+        // Auto-populate COs and POs if they're empty
+        const updatedAssessments = formData.assessments.map((assessment, index) => {
+          if (assessment.coMapping.length === 0 && assessment.poMapping.length === 0) {
+            // Auto-populate all COs with varied weightage
+            const coMappings: COMapping[] = deptCOs.map((co, coIndex) => ({
+              coCode: co.coCode,
+              coName: co.coName,
+              weightage: getVariedCOWeightage(formData.courseId, coIndex, deptCOs.length, assessment.type)
+            }));
+            
+            // Auto-populate all POs with varied low weightage (4-12% each)
+            const poMappings: POMapping[] = deptPOs.map((po, poIndex) => ({
+              poCode: po.poCode,
+              poName: po.poName,
+              weightage: getVariedPOWeightage(formData.courseId, poIndex, assessment.type)
+            }));
+            
+            return {
+              ...assessment,
+              coMapping: coMappings,
+              poMapping: poMappings
+            };
+          }
+          return assessment;
+        });
+        
+        setFormData(prev => ({
+          ...prev,
+          assessments: updatedAssessments
+        }));
+      }
+    }
+  }, [showModal, formData.courseId, courses]);
 
   const addAssessmentType = () => {
     setFormData({
@@ -823,7 +995,14 @@ export function AssessmentManagement({
                       {/* CO Mapping (End-Term only UI) */}
                       <div>
                           <div className="flex items-center justify-between mb-3">
-                            <label className="block text-sm font-medium text-gray-700">Course Outcomes Mapping</label>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">Course Outcomes Mapping</label>
+                              {coOptions.length === 0 && (
+                                <p className="text-xs text-amber-600 mt-1">
+                                  No COs available. Create COs in Course Management first.
+                                </p>
+                              )}
+                            </div>
                             <button
                               type="button"
                               onClick={() => addCOMapping(assessmentIndex)}
@@ -838,8 +1017,20 @@ export function AssessmentManagement({
                           {assessment.type === 'End-Term' && (
                             <div className="bg-white p-3 rounded-lg border mb-3">
                               <label className="block text-sm font-medium text-gray-700 mb-2">End-Term CO Marks</label>
-                              <div className="grid grid-cols-9 gap-2">
-                                {Array.from({ length: 9 }).map((_, i) => {
+                              <div className="grid grid-cols-10 gap-2">
+                                {Array.from({ length: 10 }).map((_, i) => {
+                                  if (i === 9) {
+                                    // Total marks box
+                                    const totalMarks = endTermCO[assessmentIndex]?.marks.slice(0, 9).reduce((sum, mark) => sum + (mark || 0), 0) || 0;
+                                    return (
+                                      <div key={i} className="relative">
+                                        <div className="w-full h-10 bg-gray-100 border border-gray-300 rounded flex items-center justify-center text-sm font-medium text-gray-600">
+                                          Total: {totalMarks}
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                  
                                   const maxByBox = [5,5,5,5,5,9,9,9,12][i];
                                   const current = endTermCO[assessmentIndex]?.marks[i] ?? null;
                                   const isOpen = openCOSelectorIndex[assessmentIndex] === i;
@@ -873,7 +1064,7 @@ export function AssessmentManagement({
                                         <div className="absolute z-10 mt-1 w-40 max-h-40 overflow-auto bg-white border border-gray-200 rounded shadow">
                                           <div className="p-2 space-y-1">
                                             {coOptions.length === 0 && (
-                                              <div className="text-xs text-gray-500">No COs found. Add in Course Management.</div>
+                                              <div className="text-xs text-gray-500">No COs found. Create COs in Course Management first.</div>
                                             )}
                                             {coOptions.map(o => {
                                               const selectedList = endTermCO[assessmentIndex]?.coSelections[i] || [];
@@ -932,7 +1123,12 @@ export function AssessmentManagement({
                                       }}
                                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                                     >
-                                      <option value="">Select CO</option>
+                                      <option value="">
+                                        {coOptions.length === 0 
+                                          ? "No COs available - Create in Course Management" 
+                                          : "Select CO"
+                                        }
+                                      </option>
                                       {coOptions.map((o) => (
                                         <option key={o.coCode} value={o.coCode}>{o.coCode} - {o.coName}</option>
                                       ))}
@@ -967,7 +1163,14 @@ export function AssessmentManagement({
                         {/* PO Mapping */}
                         <div className="mt-6">
                           <div className="flex items-center justify-between mb-3">
-                            <label className="block text-sm font-medium text-gray-700">Program Outcomes Mapping</label>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">Program Outcomes Mapping</label>
+                              {poOptions.length === 0 && (
+                                <p className="text-xs text-amber-600 mt-1">
+                                  No POs available. Create POs in Course Management first.
+                                </p>
+                              )}
+                            </div>
                             <button
                               type="button"
                               onClick={() => addPOMapping(assessmentIndex)}
@@ -990,7 +1193,12 @@ export function AssessmentManagement({
                                       }}
                                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                                     >
-                                      <option value="">Select PO</option>
+                                      <option value="">
+                                        {poOptions.length === 0 
+                                          ? "No POs available - Create in Course Management" 
+                                          : "Select PO"
+                                        }
+                                      </option>
                                       {poOptions.map((o) => (
                                         <option key={o.poCode} value={o.poCode}>{o.poCode} - {o.poName}</option>
                                       ))}

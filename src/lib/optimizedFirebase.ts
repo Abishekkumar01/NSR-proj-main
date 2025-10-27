@@ -183,6 +183,8 @@ export class OptimizedFirebaseService {
         return LocalStorageService.getAssessments();
       case 'faculty':
         return LocalStorageService.getFaculty();
+      case 'students':
+        return LocalStorageService.getStudents();
       case 'studentAssessments':
         return LocalStorageService.getStudentAssessments();
       default:
@@ -200,6 +202,9 @@ export class OptimizedFirebaseService {
         break;
       case 'faculty':
         LocalStorageService.saveFaculty(data);
+        break;
+      case 'students':
+        LocalStorageService.saveStudents(data);
         break;
       case 'studentAssessments':
         LocalStorageService.saveStudentAssessments(data);

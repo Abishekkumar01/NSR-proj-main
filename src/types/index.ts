@@ -65,6 +65,11 @@ export interface Assessment {
   // Optional mappings for CO and PO
   coMapping?: COMapping[];
   poMapping?: POMapping[];
+  // End-Term specific CO marks structure
+  endTermCOMarks?: {
+    marks: (number | null)[]; // 9 boxes for marks
+    coSelections: string[][]; // CO codes assigned to each box
+  };
   createdAt: Date;
 }
 
@@ -88,6 +93,15 @@ export interface POMapping {
   poCode: string; // e.g., PO1, PO2
   poName: string; // short description/title
   weightage: number; // Percentage of this PO in the assessment
+}
+
+// CO-PO Mapping interface for defining percentage relationships
+export interface COPOMapping {
+  id: string;
+  coCode: string;
+  poCode: string;
+  percentage: number; // Percentage of CO that maps to PO (0-100)
+  createdAt: Date;
 }
 
 export interface StudentAssessment {

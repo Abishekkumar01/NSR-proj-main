@@ -12,6 +12,7 @@ import { GAMapping } from './components/GAMapping';
 import { Reports } from './components/Reports';
 import { StudentRecommendations } from './components/StudentRecommendations';
 import { DataManagement } from './components/DataManagement';
+import { DataInitializer } from './components/DataInitializer';
 import { SystemGuide } from './components/SystemGuide';
 import { Student, Course, Assessment, StudentAssessment, Faculty } from './types';
 import { studentService } from './lib/studentService';
@@ -30,6 +31,7 @@ function AppContent() {
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [studentAssessments, setStudentAssessments] = useState<StudentAssessment[]>([]);
   const [faculty, setFaculty] = useState<Faculty[]>([]);
+  const [showDataInitializer, setShowDataInitializer] = useState(false);
 
   const generateId = () => Math.random().toString(36).slice(2);
 
@@ -282,6 +284,16 @@ function AppContent() {
     }
   };
 
+  // Handle data initialization
+  const handleDataInitialized = (data: any) => {
+    setFaculty(data.faculty);
+    setCourses(data.courses);
+    setStudents(data.students);
+    setAssessments(data.assessments);
+    setStudentAssessments(data.studentAssessments);
+    setShowDataInitializer(false);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -372,7 +384,25 @@ function AppContent() {
         );
       case 'data-management':
         return user.role === 'admin' ? (
-          <DataManagement />
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-3xl font-bold text-gray-900">Data Management</h2>
+                <p className="text-gray-600 mt-2">Initialize comprehensive dataset for ASET BTech CSE program</p>
+              </div>
+              <button
+                onClick={() => setShowDataInitializer(true)}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+              >
+                Initialize Dataset
+              </button>
+            </div>
+            {showDataInitializer ? (
+              <DataInitializer onDataInitialized={handleDataInitialized} />
+            ) : (
+              <DataManagement />
+            )}
+          </div>
         ) : (
           <Dashboard students={students} courses={courses} assessments={assessments} studentAssessments={studentAssessments} faculty={faculty} onPageChange={setCurrentPage} />
         );

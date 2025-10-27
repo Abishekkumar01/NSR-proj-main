@@ -1,16 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  Search, Download, BarChart3, TrendingUp, Award, Target, Users, BookOpen, 
-  GraduationCap, Building, Calendar, UserCheck, Filter, Eye, EyeOff 
+  Download, BarChart3, TrendingUp, Award, Target, Users, BookOpen, 
+  GraduationCap, Filter, Eye, EyeOff 
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line, Area, AreaChart
 } from 'recharts';
-import { Student, Assessment, StudentAssessment, GAReport, Course, Faculty } from '../types';
+import { Student, Assessment, StudentAssessment, GAReport, Course, Faculty, COPOMapping } from '../types';
 import { graduateAttributes } from '../data/graduateAttributes';
 import { schools } from '../data/schools';
 import { getSchoolFromDepartment } from '../lib/schoolMapping';
+import { LocalStorageService } from '../lib/localStorage';
 
 interface ReportsProps {
   students: Student[];
@@ -35,7 +36,7 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'
 
 export function Reports({ students, assessments, studentAssessments, courses, faculty }: ReportsProps) {
   const [viewMode, setViewMode] = useState<'overview' | 'individual'>('overview');
-  const [activeSection, setActiveSection] = useState<'student' | 'course' | 'assessment' | 'ga' | 'co' | 'po' | 'faculty'>('student');
+  const [activeSection, setActiveSection] = useState<'student' | 'course' | 'assessment' | 'ga' | 'co' | 'po' | 'co-po' | 'faculty'>('student');
   const [filters, setFilters] = useState<FilterState>({
     school: '',
     department: '',
@@ -46,6 +47,37 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
     semesters: [],
     studentSemesters: []
   });
+
+  // CO-PO Mapping state
+  const [coPoMappings, setCoPoMappings] = useState<COPOMapping[]>([]);
+  const [showCoPoMappingModal, setShowCoPoMappingModal] = useState(false);
+  const [editingMapping, setEditingMapping] = useState<COPOMapping | null>(null);
+  const [coPoFormData, setCoPoFormData] = useState({
+    coCode: '',
+    poCode: '',
+    percentage: 0
+  });
+
+  // Load CO-PO mappings on component mount
+  React.useEffect(() => {
+    const mappings = LocalStorageService.getCOPOMappings();
+    setCoPoMappings(mappings);
+  }, []);
+
+  // Derive number of semesters from selected batch (e.g., 2023-27 => 4 years => 8 semesters)
+  const getProgramSemesters = (): number[] => {
+    const batch = filters.batch || '';
+    const m = batch.match(/^(20\d{2})-(\d{2})$/);
+    if (m) {
+      const startYear = parseInt(m[1], 10);
+      const endYear = 2000 + parseInt(m[2], 10);
+      const years = Math.max(1, Math.min(5, endYear - startYear));
+      const sems = years * 2; // 2 semesters per year
+      return Array.from({ length: sems }, (_v, i) => i + 1);
+    }
+    // Fallback when batch not selected: allow up to 10 semesters
+    return Array.from({ length: 10 }, (_v, i) => i + 1);
+  };
 
   // Get filtered data based on current filters
   const filteredData = useMemo(() => {
@@ -108,7 +140,6 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
 
     // Apply faculty filter
     if (filters.faculty) {
-      filteredStudents = filteredStudents.filter(s => s.advisorId === filters.faculty);
       filteredCourses = filteredCourses.filter(c => c.facultyId === filters.faculty);
     }
 
@@ -120,6 +151,12 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
     // Apply section filter (after batch to narrow set)
     if (filters.section) {
       filteredStudents = filteredStudents.filter(s => (s.section || '') === filters.section);
+    }
+
+    // Apply semester filter to students (affects dropdowns and charts)
+    if (filters.semesters && filters.semesters.length > 0) {
+      const allowed = new Set(filters.semesters);
+      filteredStudents = filteredStudents.filter(s => allowed.has(s.semester));
     }
 
     return {
@@ -194,8 +231,18 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
 
   // Chart data generators
   const getSchoolData = () => {
+    // Apply current non-school filters to base students; include semester selection
+    const baseStudents = students.filter(s => {
+      if (filters.department && s.department !== filters.department) return false;
+      if (filters.batch && s.batch !== filters.batch) return false;
+      if (filters.section && (s.section || '') !== filters.section) return false;
+      if (filters.student && s.id !== filters.student) return false;
+      if (filters.semesters.length > 0 && !filters.semesters.includes(s.semester)) return false;
+      return true;
+    });
+
     const schoolStats = schools.map(school => {
-      const schoolStudents = students.filter(s => {
+      const schoolStudents = baseStudents.filter(s => {
         const studentSchool = s.school || getSchoolFromDepartment(s.department);
         return studentSchool === school.name;
       });
@@ -239,23 +286,6 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
         assessments: assessments.filter(a => 
           deptCourses.some(c => c.id === a.courseId)
         ).length
-      };
-    });
-  };
-
-  const getBatchData = () => {
-    const batches = [...new Set(filteredData.students.map(s => s.batch))].sort();
-    
-    return batches.map(batch => {
-      const batchStudents = filteredData.students.filter(s => s.batch === batch);
-      const batchGAPerformance = gaReports
-        .filter(r => batchStudents.some(s => s.id === r.studentId))
-        .reduce((sum, r) => sum + r.overallGAPerformance, 0) / batchStudents.length || 0;
-      
-      return {
-        name: `Batch ${batch}`,
-        students: batchStudents.length,
-        performance: batchGAPerformance
       };
     });
   };
@@ -306,12 +336,11 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
 
   const getFacultyData = () => {
     return filteredData.faculty.map(f => {
-      const facultyStudents = filteredData.students.filter(s => s.advisorId === f.id);
       const facultyCourses = filteredData.courses.filter(c => c.facultyId === f.id);
       
       return {
         name: f.name,
-        students: facultyStudents.length,
+        students: 0, // Students are not directly linked to faculty in current data model
         courses: facultyCourses.length,
         assessments: assessments.filter(a => 
           facultyCourses.some(c => c.id === a.courseId)
@@ -332,6 +361,82 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
       });
     });
     return Object.values(map).map(e => ({ name: e.name, value: e.count > 0 ? e.totalWeight / e.count : 0, count: e.count }));
+  };
+
+  // CO distribution with actual performance scores based on student marks
+  const getCODistributionData = () => {
+    const coPerformanceMap: Record<string, { name: string; totalScore: number; count: number; totalWeight: number }> = {};
+    
+    // Initialize COs from assessments
+    filteredData.assessments.forEach(a => {
+      (a.coMapping || []).forEach(co => {
+        if (!coPerformanceMap[co.coCode]) {
+          coPerformanceMap[co.coCode] = { name: co.coCode, totalScore: 0, count: 0, totalWeight: 0 };
+        }
+        coPerformanceMap[co.coCode].totalWeight += co.weightage;
+      });
+    });
+
+    // Calculate performance scores from student assessments
+    studentAssessments.forEach(sa => {
+      const assessment = filteredData.assessments.find(a => a.id === sa.assessmentId);
+      if (!assessment || !assessment.coMapping) return;
+
+      const studentPercentage = (sa.marksObtained / sa.maxMarks) * 100;
+      
+      assessment.coMapping.forEach(co => {
+        if (coPerformanceMap[co.coCode]) {
+          const coScore = (studentPercentage * co.weightage) / 100;
+          coPerformanceMap[co.coCode].totalScore += coScore;
+          coPerformanceMap[co.coCode].count += 1;
+        }
+      });
+    });
+
+    return Object.values(coPerformanceMap).map(co => ({
+      name: co.name,
+      value: co.count > 0 ? co.totalScore / co.count : 0,
+      count: co.count,
+      averageWeight: co.totalWeight / filteredData.assessments.filter(a => a.coMapping?.some(c => c.coCode === co.name)).length || 0
+    }));
+  };
+
+  // PO distribution with actual performance scores based on student marks
+  const getPODistributionData = () => {
+    const poPerformanceMap: Record<string, { name: string; totalScore: number; count: number; totalWeight: number }> = {};
+    
+    // Initialize POs from assessments
+    filteredData.assessments.forEach(a => {
+      (a.poMapping || []).forEach(po => {
+        if (!poPerformanceMap[po.poCode]) {
+          poPerformanceMap[po.poCode] = { name: po.poCode, totalScore: 0, count: 0, totalWeight: 0 };
+        }
+        poPerformanceMap[po.poCode].totalWeight += po.weightage;
+      });
+    });
+
+    // Calculate performance scores from student assessments
+    studentAssessments.forEach(sa => {
+      const assessment = filteredData.assessments.find(a => a.id === sa.assessmentId);
+      if (!assessment || !assessment.poMapping) return;
+
+      const studentPercentage = (sa.marksObtained / sa.maxMarks) * 100;
+      
+      assessment.poMapping.forEach(po => {
+        if (poPerformanceMap[po.poCode]) {
+          const poScore = (studentPercentage * po.weightage) / 100;
+          poPerformanceMap[po.poCode].totalScore += poScore;
+          poPerformanceMap[po.poCode].count += 1;
+        }
+      });
+    });
+
+    return Object.values(poPerformanceMap).map(po => ({
+      name: po.name,
+      value: po.count > 0 ? po.totalScore / po.count : 0,
+      count: po.count,
+      averageWeight: po.totalWeight / filteredData.assessments.filter(a => a.poMapping?.some(p => p.poCode === po.name)).length || 0
+    }));
   };
 
   const getGADistributionData = () => {
@@ -378,81 +483,6 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
     }));
   };
 
-  // CO distribution with actual performance scores based on student marks
-  const getCOScoreDistributionData = () => {
-    const coPerformanceMap: Record<string, { name: string; totalScore: number; count: number; totalWeight: number }> = {};
-    
-    // Initialize COs from assessments
-    filteredData.assessments.forEach(a => {
-      (a.coMapping || []).forEach(co => {
-        if (!coPerformanceMap[co.coCode]) {
-          coPerformanceMap[co.coCode] = { name: co.coCode, totalScore: 0, count: 0, totalWeight: 0 };
-        }
-        coPerformanceMap[co.coCode].totalWeight += co.weightage;
-      });
-    });
-
-    // Calculate performance scores from student assessments
-    studentAssessments.forEach(sa => {
-      const assessment = filteredData.assessments.find(a => a.id === sa.assessmentId);
-      if (!assessment || !assessment.coMapping) return;
-
-      const studentPercentage = (sa.marksObtained / sa.maxMarks) * 100;
-      
-      assessment.coMapping.forEach(co => {
-        if (coPerformanceMap[co.coCode]) {
-          const coScore = (studentPercentage * co.weightage) / 100;
-          coPerformanceMap[co.coCode].totalScore += coScore;
-          coPerformanceMap[co.coCode].count += 1;
-        }
-      });
-    });
-
-    return Object.values(coPerformanceMap).map(co => ({
-      name: co.name,
-      value: co.count > 0 ? co.totalScore / co.count : 0,
-      count: co.count,
-      averageWeight: co.totalWeight / filteredData.assessments.filter(a => a.coMapping?.some(c => c.coCode === co.name)).length || 0
-    }));
-  };
-
-  // PO distribution with actual performance scores based on student marks
-  const getPOScoreDistributionData = () => {
-    const poPerformanceMap: Record<string, { name: string; totalScore: number; count: number; totalWeight: number }> = {};
-    
-    // Initialize POs from assessments
-    filteredData.assessments.forEach(a => {
-      (a.poMapping || []).forEach(po => {
-        if (!poPerformanceMap[po.poCode]) {
-          poPerformanceMap[po.poCode] = { name: po.poCode, totalScore: 0, count: 0, totalWeight: 0 };
-        }
-        poPerformanceMap[po.poCode].totalWeight += po.weightage;
-      });
-    });
-
-    // Calculate performance scores from student assessments
-    studentAssessments.forEach(sa => {
-      const assessment = filteredData.assessments.find(a => a.id === sa.assessmentId);
-      if (!assessment || !assessment.poMapping) return;
-
-      const studentPercentage = (sa.marksObtained / sa.maxMarks) * 100;
-      
-      assessment.poMapping.forEach(po => {
-        if (poPerformanceMap[po.poCode]) {
-          const poScore = (studentPercentage * po.weightage) / 100;
-          poPerformanceMap[po.poCode].totalScore += poScore;
-          poPerformanceMap[po.poCode].count += 1;
-        }
-      });
-    });
-
-    return Object.values(poPerformanceMap).map(po => ({
-      name: po.name,
-      value: po.count > 0 ? po.totalScore / po.count : 0,
-      count: po.count,
-      averageWeight: po.totalWeight / filteredData.assessments.filter(a => a.poMapping?.some(p => p.poCode === po.name)).length || 0
-    }));
-  };
 
   // Export functions
   const exportCSV = () => {
@@ -491,14 +521,20 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
         break;
         case 'co':
           csvContent = 'CO Code,Average Performance Score,Student Count,Average Weightage\n';
-          getCOScoreDistributionData().forEach(co => {
+          getCODistributionData().forEach(co => {
             csvContent += `${co.name},${co.value.toFixed(2)},${co.count},${co.averageWeight.toFixed(2)}\n`;
           });
           break;
         case 'po':
           csvContent = 'PO Code,Average Performance Score,Student Count,Average Weightage\n';
-          getPOScoreDistributionData().forEach(po => {
+          getPODistributionData().forEach(po => {
             csvContent += `${po.name},${po.value.toFixed(2)},${po.count},${po.averageWeight.toFixed(2)}\n`;
+          });
+          break;
+        case 'co-po':
+          csvContent = 'CO Code,PO Code,Percentage\n';
+          coPoMappings.forEach(mapping => {
+            csvContent += `${mapping.coCode},${mapping.poCode},${mapping.percentage}\n`;
           });
           break;
       case 'faculty':
@@ -527,29 +563,90 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
       // Reset dependent filters
       ...(key === 'school' && { department: '', batch: '', section: '', faculty: '', student: '' }),
       ...(key === 'department' && { batch: '', section: '', faculty: '', student: '' }),
-      ...(key === 'batch' && { section: '', faculty: '', student: '' }),
+      ...(key === 'batch' && { section: '', faculty: '', student: '', semesters: [] }),
       ...(key === 'section' && { student: '' }),
       ...(key === 'faculty' && { student: '' })
     }));
   };
 
-  const toggleSemester = (semester: number, type: 'semesters' | 'studentSemesters') => {
-    setFilters(prev => {
-      const currentSemesters = prev[type];
-      const maxSemesters = type === 'semesters' ? 3 : 10;
-      
-      if (currentSemesters.includes(semester)) {
-        return {
-          ...prev,
-          [type]: currentSemesters.filter(s => s !== semester)
-        };
-      } else if (currentSemesters.length < maxSemesters) {
-        return {
-          ...prev,
-          [type]: [...currentSemesters, semester].sort()
-        };
-      }
-      return prev;
+  // CO-PO Mapping functions
+  const handleAddCoPoMapping = () => {
+    setEditingMapping(null);
+    setCoPoFormData({ coCode: '', poCode: '', percentage: 0 });
+    setShowCoPoMappingModal(true);
+  };
+
+  const handleEditCoPoMapping = (mapping: COPOMapping) => {
+    setEditingMapping(mapping);
+    setCoPoFormData({
+      coCode: mapping.coCode,
+      poCode: mapping.poCode,
+      percentage: mapping.percentage
+    });
+    setShowCoPoMappingModal(true);
+  };
+
+  const handleSaveCoPoMapping = () => {
+    if (!coPoFormData.coCode || !coPoFormData.poCode || coPoFormData.percentage < 0 || coPoFormData.percentage > 100) {
+      return;
+    }
+
+    const newMapping: COPOMapping = {
+      id: editingMapping?.id || Date.now().toString(),
+      coCode: coPoFormData.coCode,
+      poCode: coPoFormData.poCode,
+      percentage: coPoFormData.percentage,
+      createdAt: editingMapping?.createdAt || new Date()
+    };
+
+    if (editingMapping) {
+      LocalStorageService.updateCOPOMapping(editingMapping.id, newMapping);
+    } else {
+      LocalStorageService.addCOPOMapping(newMapping);
+    }
+
+    // Refresh mappings
+    const updatedMappings = LocalStorageService.getCOPOMappings();
+    setCoPoMappings(updatedMappings);
+    setShowCoPoMappingModal(false);
+    setCoPoFormData({ coCode: '', poCode: '', percentage: 0 });
+  };
+
+  const handleDeleteCoPoMapping = (id: string) => {
+    LocalStorageService.deleteCOPOMapping(id);
+    const updatedMappings = LocalStorageService.getCOPOMappings();
+    setCoPoMappings(updatedMappings);
+  };
+
+  // Get available COs and POs from assessments
+  const getAvailableCOs = () => {
+    const coSet = new Set<string>();
+    filteredData.assessments.forEach(assessment => {
+      assessment.coMapping?.forEach(co => coSet.add(co.coCode));
+    });
+    return Array.from(coSet).sort();
+  };
+
+  const getAvailablePOs = () => {
+    const poSet = new Set<string>();
+    filteredData.assessments.forEach(assessment => {
+      assessment.poMapping?.forEach(po => poSet.add(po.poCode));
+    });
+    return Array.from(poSet).sort();
+  };
+
+  // Generate CO-PO mapping matrix data
+  const getCoPoMappingData = () => {
+    const coList = getAvailableCOs();
+    const poList = getAvailablePOs();
+    
+    return coList.map(coCode => {
+      const coData: any = { coCode };
+      poList.forEach(poCode => {
+        const mapping = coPoMappings.find(m => m.coCode === coCode && m.poCode === poCode);
+        coData[poCode] = mapping ? mapping.percentage : 0;
+      });
+      return coData;
     });
   };
 
@@ -569,6 +666,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
       case 'student':
         return (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {getSchoolData().some(d => d.students > 0) && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">School-wise Student Distribution</h3>
               <ResponsiveContainer width="100%" height={300}>
@@ -582,6 +680,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
                 </BarChart>
               </ResponsiveContainer>
             </div>
+            )}
             
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Overall Performance Distribution</h3>
@@ -596,7 +695,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
                     cx="50%"
                     cy="50%"
                     labelLine={true}
-                    label={({ name, percent }) => percent > 0 ? `${name}\n${(percent * 100).toFixed(0)}%` : ''}
+                    label={({ name, percent }: any) => percent > 0 ? `${name}\n${(percent * 100).toFixed(0)}%` : ''}
                     outerRadius={100}
                     fill="#8884d8"
                     dataKey="value"
@@ -609,6 +708,21 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
                 </PieChart>
               </ResponsiveContainer>
             </div>
+            {filters.semesters.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:col-span-2">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Semester-wise Performance (Selected Semesters)</h3>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={getSemesterComparisonData()}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="performance" stroke="#0088FE" name="Performance %" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </div>
         );
 
@@ -657,7 +771,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
                     cx="50%"
                     cy="50%"
                     labelLine={false}
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    label={({ name, percent }: any) => `${name} ${(percent * 100).toFixed(0)}%`}
                     outerRadius={80}
                     fill="#8884d8"
                     dataKey="value"
@@ -737,7 +851,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">CO Performance Distribution</h3>
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={getCOScoreDistributionData()}>
+                <BarChart data={getCODistributionData()}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="name" />
                   <YAxis />
@@ -758,7 +872,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
               <ResponsiveContainer width="100%" height={300}>
                 <PieChart>
                   <Pie
-                    data={getCOScoreDistributionData()}
+                    data={getCODistributionData()}
                     cx="50%"
                     cy="50%"
                     labelLine={false}
@@ -767,7 +881,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
                     fill="#8884d8"
                     dataKey="count"
                   >
-                    {getCOScoreDistributionData().map((entry, index) => (
+                    {getCODistributionData().map((entry, index) => (
                       <Cell key={`cell-co-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
@@ -789,7 +903,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">PO Performance Distribution</h3>
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={getPOScoreDistributionData()}>
+                <BarChart data={getPODistributionData()}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="name" />
                   <YAxis />
@@ -810,7 +924,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
               <ResponsiveContainer width="100%" height={300}>
                 <PieChart>
                   <Pie
-                    data={getPOScoreDistributionData()}
+                    data={getPODistributionData()}
                     cx="50%"
                     cy="50%"
                     labelLine={false}
@@ -819,7 +933,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
                     fill="#8884d8"
                     dataKey="count"
                   >
-                    {getPOScoreDistributionData().map((entry, index) => (
+                    {getPODistributionData().map((entry, index) => (
                       <Cell key={`cell-po-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
@@ -832,6 +946,102 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
                 </PieChart>
               </ResponsiveContainer>
             </div>
+          </div>
+        );
+
+      case 'co-po':
+        return (
+          <div className="space-y-6">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">CO-PO Mapping Matrix</h3>
+                <button
+                  onClick={handleAddCoPoMapping}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                >
+                  <Target className="w-4 h-4" />
+                  Add Mapping
+                </button>
+              </div>
+              
+              {getCoPoMappingData().length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse border border-gray-300">
+                    <thead>
+                      <tr className="bg-gray-50">
+                        <th className="border border-gray-300 px-4 py-2 text-left font-medium text-gray-700">CO</th>
+                        {getAvailablePOs().map(po => (
+                          <th key={po} className="border border-gray-300 px-4 py-2 text-center font-medium text-gray-700">{po}</th>
+                        ))}
+                        <th className="border border-gray-300 px-4 py-2 text-center font-medium text-gray-700">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {getCoPoMappingData().map((row, index) => (
+                        <tr key={row.coCode}>
+                          <td className="border border-gray-300 px-4 py-2 font-medium text-gray-900">{row.coCode}</td>
+                          {getAvailablePOs().map(po => (
+                            <td key={po} className="border border-gray-300 px-4 py-2 text-center">
+                              <span className={`px-2 py-1 rounded text-sm ${
+                                row[po] > 0 ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'
+                              }`}>
+                                {row[po]}%
+                              </span>
+                            </td>
+                          ))}
+                          <td className="border border-gray-300 px-4 py-2 text-center">
+                            <div className="flex gap-2 justify-center">
+                              {coPoMappings.filter(m => m.coCode === row.coCode).map(mapping => (
+                                <button
+                                  key={mapping.id}
+                                  onClick={() => handleEditCoPoMapping(mapping)}
+                                  className="text-blue-600 hover:text-blue-800 text-sm"
+                                >
+                                  Edit
+                                </button>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <Target className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+                  <p>No CO-PO mappings defined yet. Click "Add Mapping" to create mappings.</p>
+                </div>
+              )}
+            </div>
+
+            {coPoMappings.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">CO-PO Mapping Summary</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {coPoMappings.map(mapping => (
+                    <div key={mapping.id} className="border border-gray-200 rounded-lg p-4">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <span className="font-medium text-gray-900">{mapping.coCode}</span>
+                          <span className="text-gray-500 mx-2">→</span>
+                          <span className="font-medium text-gray-900">{mapping.poCode}</span>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteCoPoMapping(mapping.id)}
+                          className="text-red-600 hover:text-red-800 text-sm"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        <span className="font-medium">{mapping.percentage}%</span> mapping
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         );
 
@@ -1108,6 +1318,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
             { key: 'ga', label: 'GA Mapping', icon: Award },
             { key: 'co', label: 'CO Mapping', icon: TrendingUp },
             { key: 'po', label: 'PO Mapping', icon: BarChart3 },
+            { key: 'co-po', label: 'CO - PO Mapping', icon: BarChart3 },
             { key: 'faculty', label: 'Faculty', icon: GraduationCap }
           ].map(({ key, label, icon: Icon }) => (
             <button
@@ -1133,7 +1344,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
           <h3 className="text-lg font-semibold text-gray-900">Filters</h3>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-4">
           {/* School Filter */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">School *</label>
@@ -1213,6 +1424,33 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
             </select>
           </div>
 
+          {/* Semesters (Overview) - Dropdown based on batch length */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Semesters (Overview)</label>
+            <select
+              multiple
+              value={filters.semesters.map(String)}
+              onChange={(e) => {
+                const raw = Array.from(e.target.selectedOptions).map(o => o.value);
+                if (raw.includes('none')) {
+                  setFilters(prev => ({ ...prev, semesters: [] }));
+                } else {
+                  const selectedValues = raw.map(v => parseInt(v));
+                  setFilters(prev => ({ ...prev, semesters: selectedValues }));
+                }
+              }}
+              disabled={!filters.batch}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+              size={Math.min(6, getProgramSemesters().length)}
+            >
+              <option value="none">None (clear)</option>
+              {getProgramSemesters().map(sem => (
+                <option key={`sem-opt-${sem}`} value={sem}>{`Sem ${sem}`}</option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple semesters</p>
+          </div>
+
           {/* Student Filter */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Student</label>
@@ -1255,44 +1493,58 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
         {/* Semester Selection */}
         {viewMode === 'individual' && (
           <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Batch Semester Selection */}
+            {/* Batch Semester Selection - Dropdown */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Batch Semesters (Max 3)</label>
-              <div className="flex flex-wrap gap-2">
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(semester => (
-                  <button
-                    key={semester}
-                    onClick={() => toggleSemester(semester, 'semesters')}
-                    className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
-                      filters.semesters.includes(semester)
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                  >
-                    Sem {semester}
-                  </button>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Batch Semesters</label>
+              <select
+                multiple
+                value={filters.semesters.map(String)}
+                onChange={(e) => {
+                  const raw = Array.from(e.target.selectedOptions).map(o => o.value);
+                  if (raw.includes('none')) {
+                    setFilters(prev => ({ ...prev, semesters: [] }));
+                  } else {
+                    const selectedValues = raw.map(v => parseInt(v));
+                    setFilters(prev => ({ ...prev, semesters: selectedValues }));
+                  }
+                }}
+                disabled={!filters.batch}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                size={Math.min(6, getProgramSemesters().length)}
+              >
+                <option value="none">None (clear)</option>
+                {getProgramSemesters().map(sem => (
+                  <option key={`sem-ind-opt-${sem}`} value={sem}>{`Sem ${sem}`}</option>
                 ))}
-              </div>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple semesters</p>
             </div>
 
-            {/* Individual Student Semester Selection */}
+            {/* Individual Student Semester Selection - Dropdown */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Student Semesters (Max 10)</label>
-              <div className="flex flex-wrap gap-2">
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(semester => (
-                  <button
-                    key={semester}
-                    onClick={() => toggleSemester(semester, 'studentSemesters')}
-                    className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
-                      filters.studentSemesters.includes(semester)
-                        ? 'bg-green-600 text-white'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                  >
-                    Sem {semester}
-                  </button>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Student Semesters</label>
+              <select
+                multiple
+                value={filters.studentSemesters.map(String)}
+                onChange={(e) => {
+                  const raw = Array.from(e.target.selectedOptions).map(o => o.value);
+                  if (raw.includes('none')) {
+                    setFilters(prev => ({ ...prev, studentSemesters: [] }));
+                  } else {
+                    const selectedValues = raw.map(v => parseInt(v));
+                    setFilters(prev => ({ ...prev, studentSemesters: selectedValues }));
+                  }
+                }}
+                disabled={!filters.student}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-600 focus:border-transparent disabled:bg-gray-100"
+                size={Math.min(6, getProgramSemesters().length)}
+              >
+                <option value="none">None (clear)</option>
+                {getProgramSemesters().map(sem => (
+                  <option key={`stu-sem-opt-${sem}`} value={sem}>{`Sem ${sem}`}</option>
                 ))}
-              </div>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple semesters</p>
             </div>
           </div>
         )}
@@ -1302,6 +1554,78 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
       <div className="space-y-6">
         {viewMode === 'overview' ? renderOverviewCharts() : renderIndividualCharts()}
       </div>
+
+      {/* CO-PO Mapping Modal */}
+      {showCoPoMappingModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              {editingMapping ? 'Edit CO-PO Mapping' : 'Add CO-PO Mapping'}
+            </h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">CO Code</label>
+                <select
+                  value={coPoFormData.coCode}
+                  onChange={(e) => setCoPoFormData({ ...coPoFormData, coCode: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">Select CO</option>
+                  {getAvailableCOs().map(co => (
+                    <option key={co} value={co}>{co}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">PO Code</label>
+                <select
+                  value={coPoFormData.poCode}
+                  onChange={(e) => setCoPoFormData({ ...coPoFormData, poCode: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">Select PO</option>
+                  {getAvailablePOs().map(po => (
+                    <option key={po} value={po}>{po}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Percentage</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={coPoFormData.percentage}
+                  onChange={(e) => setCoPoFormData({ ...coPoFormData, percentage: parseInt(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="0-100"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={handleSaveCoPoMapping}
+                className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                {editingMapping ? 'Update' : 'Add'} Mapping
+              </button>
+              <button
+                onClick={() => {
+                  setShowCoPoMappingModal(false);
+                  setCoPoFormData({ coCode: '', poCode: '', percentage: 0 });
+                }}
+                className="flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

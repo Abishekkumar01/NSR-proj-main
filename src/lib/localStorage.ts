@@ -1,4 +1,4 @@
-import { Course, Assessment, Faculty } from '../types';
+import { Course, Assessment, Faculty, COPOMapping, Student } from '../types';
 
 // Local Storage Service to reduce Firebase quota usage
 export class LocalStorageService {
@@ -6,10 +6,12 @@ export class LocalStorageService {
     COURSES: 'nsr_courses',
     ASSESSMENTS: 'nsr_assessments',
     FACULTY: 'nsr_faculty',
+    STUDENTS: 'nsr_students',
     STUDENT_ASSESSMENTS: 'nsr_student_assessments',
     PO_OPTIONS: 'nsr_po_options', // map of department -> [{poCode, poName}]
     CO_OPTIONS: 'nsr_co_options', // map of department -> [{coCode, coName}]
-    BATCH_OPTIONS: 'nsr_batch_options_map' // map of department -> string[]
+    BATCH_OPTIONS: 'nsr_batch_options_map', // map of department -> string[]
+    CO_PO_MAPPINGS: 'nsr_co_po_mappings' // array of COPOMapping objects
   };
 
   // Course Management
@@ -136,6 +138,46 @@ export class LocalStorageService {
     const facultyList = this.getFaculty();
     const filtered = facultyList.filter(f => f.id !== id);
     this.saveFaculty(filtered);
+  }
+
+  // Student Management
+  static getStudents(): Student[] {
+    try {
+      const data = localStorage.getItem(this.KEYS.STUDENTS);
+      return data ? JSON.parse(data) : [];
+    } catch (error) {
+      console.error('Error loading students from localStorage:', error);
+      return [];
+    }
+  }
+
+  static saveStudents(students: Student[]): void {
+    try {
+      localStorage.setItem(this.KEYS.STUDENTS, JSON.stringify(students));
+    } catch (error) {
+      console.error('Error saving students to localStorage:', error);
+    }
+  }
+
+  static addStudent(student: Student): void {
+    const students = this.getStudents();
+    students.push(student);
+    this.saveStudents(students);
+  }
+
+  static updateStudent(id: string, updates: Partial<Student>): void {
+    const students = this.getStudents();
+    const index = students.findIndex(s => s.id === id);
+    if (index !== -1) {
+      students[index] = { ...students[index], ...updates };
+      this.saveStudents(students);
+    }
+  }
+
+  static deleteStudent(id: string): void {
+    const students = this.getStudents();
+    const filtered = students.filter(s => s.id !== id);
+    this.saveStudents(filtered);
   }
 
   // Student Assessments
@@ -298,5 +340,57 @@ export class LocalStorageService {
     const map = this.getBatchOptionsMap();
     map[department] = options;
     this.saveBatchOptionsMap(map);
+  }
+
+  // CO-PO Mapping Management
+  static getCOPOMappings(): COPOMapping[] {
+    try {
+      const data = localStorage.getItem(this.KEYS.CO_PO_MAPPINGS);
+      return data ? JSON.parse(data) : [];
+    } catch (error) {
+      console.error('Error loading CO-PO mappings from localStorage:', error);
+      return [];
+    }
+  }
+
+  static saveCOPOMappings(mappings: COPOMapping[]): void {
+    try {
+      localStorage.setItem(this.KEYS.CO_PO_MAPPINGS, JSON.stringify(mappings));
+    } catch (error) {
+      console.error('Error saving CO-PO mappings to localStorage:', error);
+    }
+  }
+
+  static addCOPOMapping(mapping: COPOMapping): void {
+    try {
+      const mappings = this.getCOPOMappings();
+      mappings.push(mapping);
+      this.saveCOPOMappings(mappings);
+    } catch (error) {
+      console.error('Error adding CO-PO mapping to localStorage:', error);
+    }
+  }
+
+  static updateCOPOMapping(id: string, updatedMapping: Partial<COPOMapping>): void {
+    try {
+      const mappings = this.getCOPOMappings();
+      const index = mappings.findIndex(m => m.id === id);
+      if (index !== -1) {
+        mappings[index] = { ...mappings[index], ...updatedMapping };
+        this.saveCOPOMappings(mappings);
+      }
+    } catch (error) {
+      console.error('Error updating CO-PO mapping in localStorage:', error);
+    }
+  }
+
+  static deleteCOPOMapping(id: string): void {
+    try {
+      const mappings = this.getCOPOMappings();
+      const filteredMappings = mappings.filter(m => m.id !== id);
+      this.saveCOPOMappings(filteredMappings);
+    } catch (error) {
+      console.error('Error deleting CO-PO mapping from localStorage:', error);
+    }
   }
 }

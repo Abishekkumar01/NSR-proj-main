@@ -17,6 +17,27 @@ interface StudentManagementProps {
 
 export function StudentManagement({ students, onAddStudent, onUpdateStudent, onDeleteStudent, faculty = [] }: StudentManagementProps) {
   const { user } = useAuth();
+  // Normalize batch strings to the canonical "YYYY-YY" format for consistent display and storage
+  const normalizeBatchDisplay = (value: string): string => {
+    const v = String(value || '').trim();
+    if (!v) return '';
+    // Matches formats like 2023 - 2027 -> 2023-27
+    const fullYears = v.match(/\b(20\d{2})\D+(20\d{2})\b/);
+    if (fullYears) {
+      const start = fullYears[1];
+      const endYY = fullYears[2].slice(2);
+      return `${start}-${endYY}`;
+    }
+    // Already in YYYY-YY
+    const canonical = v.match(/^20\d{2}-\d{2}$/);
+    if (canonical) return v;
+    // Short form like 22-26 -> 2022-26 for display
+    const short = v.match(/^(\d{2})\s*[-–to]+\s*(\d{2})$/i);
+    if (short) {
+      return `20${short[1]}-${short[2]}`;
+    }
+    return v;
+  };
   const [showModal, setShowModal] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -132,7 +153,7 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
       return !!s.batch;
     });
 
-    const batches = Array.from(new Set(eligible.map(s => s.batch))).sort();
+    const batches = Array.from(new Set(eligible.map(s => normalizeBatchDisplay(s.batch)))).sort();
     setBatchOptions(batches);
   }, [user, filterSchoolId, filterDepartment, students]);
 
@@ -899,7 +920,7 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
                     <td className="px-6 py-4 text-sm text-gray-900">{student.section || '-'}</td>
                     <td className="px-6 py-4 text-sm text-gray-900">{student.department}</td>
                     <td className="px-6 py-4 text-sm text-gray-900">{(student as any).mobile || '-'}</td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{student.batch}</td>
+                    <td className="px-6 py-4 text-sm text-gray-900">{normalizeBatchDisplay(student.batch)}</td>
                     <td className="px-6 py-4 text-sm text-gray-900">{student.semester}</td>
                     <td className="px-6 py-4 text-sm">
                       <div className="flex items-center gap-2">
@@ -1032,7 +1053,7 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
                       type="button"
                       onClick={() => {
                         if (!newBatch || !newBatchEnd || !formData.department) return;
-                        const formattedBatch = `20${newBatch}-20${newBatchEnd}`;
+                        const formattedBatch = `20${newBatch}-${newBatchEnd}`;
                         if (!(batchOptions || []).includes(formattedBatch)) {
                           const updated = [...(batchOptions || []), formattedBatch];
                           setBatchOptions(updated);
@@ -1047,7 +1068,7 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
                       Add
                     </button>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">Format: 20XX-20XX (e.g., 22-26 for 2022-2026)</p>
+                  <p className="text-xs text-gray-500 mt-1">Format: YYYY-YY (e.g., 2022-26)</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Browse Batches</label>
