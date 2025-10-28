@@ -143,24 +143,38 @@ export function DataInitializer({ onDataInitialized }: DataInitializerProps) {
           </div>
         </div>
         
-        <button
-          onClick={handleInitializeData}
-          disabled={isInitializing}
-          className={`px-8 py-3 rounded-lg font-semibold text-white transition-colors ${
-            isInitializing
-              ? 'bg-gray-400 cursor-not-allowed'
-              : 'bg-blue-600 hover:bg-blue-700'
-          }`}
-        >
-          {isInitializing ? (
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              <span>Initializing Data...</span>
-            </div>
-          ) : (
-            'Initialize Complete Dataset'
-          )}
-        </button>
+        <div className="flex gap-4 justify-center">
+          <button
+            onClick={() => {
+              // Clear all localStorage data
+              localStorage.clear();
+              console.log('LocalStorage cleared. Please refresh the page.');
+              alert('LocalStorage cleared! Please refresh the page (Ctrl+F5) to see fresh data with populated End-Term marks.');
+            }}
+            className="px-6 py-3 rounded-lg font-semibold text-white bg-red-600 hover:bg-red-700 transition-colors"
+          >
+            Clear Data & Refresh
+          </button>
+          
+          <button
+            onClick={handleInitializeData}
+            disabled={isInitializing}
+            className={`px-8 py-3 rounded-lg font-semibold text-white transition-colors ${
+              isInitializing
+                ? 'bg-gray-400 cursor-not-allowed'
+                : 'bg-blue-600 hover:bg-blue-700'
+            }`}
+          >
+            {isInitializing ? (
+              <div className="flex items-center space-x-2">
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <span>Initializing Data...</span>
+              </div>
+            ) : (
+              'Initialize Complete Dataset'
+            )}
+          </button>
+        </div>
         
         {isInitializing && (
           <div className="mt-4 text-sm text-gray-600">

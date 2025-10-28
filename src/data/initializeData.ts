@@ -496,7 +496,7 @@ export function generateAssessmentData(): Assessment[] {
       { type: 'Quiz' as const, maxMarks: 20, weightage: 10 },
       { type: 'Assignment' as const, maxMarks: 50, weightage: 15 },
       { type: 'Mid-Term' as const, maxMarks: 100, weightage: 30 },
-      { type: 'End-Term' as const, maxMarks: 100, weightage: 45 }
+      { type: 'End-Term' as const, maxMarks: 50, weightage: 45 }
     ];
 
     assessmentTypes.forEach((assessmentType, assessmentIndex) => {
@@ -542,17 +542,20 @@ export function generateAssessmentData(): Assessment[] {
       // Add End-Term CO marks structure for End-Term assessments
       let endTermCOMarks = undefined;
       if (assessmentType.type === 'End-Term') {
+        // Structure: 5 questions of 5 marks each (attempt 4, 1 optional) + 3 questions of 9 marks each (attempt 2, 1 optional) + 1 compulsory 12 mark question = 50 total attempted
         const marksDistribution = [5, 5, 5, 5, 5, 9, 9, 9, 12];
         const marks = Array(9).fill(null);
         const coSelections = Array(9).fill(0).map(() => []);
         
-        // Randomly leave one box empty from first 5 (5-mark questions)
+        // Randomly leave one box empty from first 5 (5-mark questions) - attempt 4, 1 optional
         const emptyBox5 = Math.floor(Math.random() * 5);
         marks[emptyBox5] = null;
         
-        // Randomly leave one box empty from next 3 (9-mark questions)
+        // Randomly leave one box empty from next 3 (9-mark questions) - attempt 2, 1 optional
         const emptyBox9 = 5 + Math.floor(Math.random() * 3);
         marks[emptyBox9] = null;
+        
+        // Question 9 (12 marks) is compulsory, so leave it as is
         
         // Auto-assign COs to the boxes
         if (course.coOptions && course.coOptions.length > 0) {
@@ -624,7 +627,9 @@ export function generateStudentAssessmentData(students: Student[], assessments: 
           marksObtained = Math.floor(Math.random() * (maxMarks * 0.6)) + Math.floor(maxMarks * 0.4);
           break;
         case 'End-Term':
-          marksObtained = Math.floor(Math.random() * (maxMarks * 0.5)) + Math.floor(maxMarks * 0.5);
+          // For End-Term, students attempt 7 out of 9 questions to make ~50 marks
+          // Generate marks between 35-50 (70-100% of maxMarks which is 50)
+          marksObtained = Math.floor(Math.random() * (50 - 35 + 1)) + 35;
           break;
         default:
           marksObtained = Math.floor(Math.random() * maxMarks);

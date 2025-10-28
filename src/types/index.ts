@@ -67,7 +67,7 @@ export interface Assessment {
   poMapping?: POMapping[];
   // End-Term specific CO marks structure
   endTermCOMarks?: {
-    marks: (number | null)[]; // 9 boxes for marks
+    marks: (number | null)[]; // 9 boxes for marks: 5x5-mark + 3x9-mark + 1x12-mark = 64 total, students attempt 7 to make 50
     coSelections: string[][]; // CO codes assigned to each box
   };
   createdAt: Date;

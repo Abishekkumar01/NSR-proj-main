@@ -135,9 +135,10 @@ export function GAMapping({
     }
   }, []);
 
-  // Question mark distribution
+  // Question mark distribution - 9 boxes total, students attempt 7 to make 50 marks
+  // Structure: 5 questions of 5 marks each (attempt 4, 1 optional) + 3 questions of 9 marks each (attempt 2, 1 optional) + 1 compulsory 12 mark question = 50 total attempted
   const questionMaxMarks = [5, 5, 5, 5, 5, 9, 9, 9, 12];
-  const totalMaxMarks = questionMaxMarks.reduce((sum, marks) => sum + marks, 0);
+  const totalMaxMarks = 50; // Students attempt 7 out of 9 questions to make 50 marks
 
   const handleAssessmentSelect = (assessment: Assessment) => {
     setSelectedAssessment(assessment);
@@ -194,6 +195,52 @@ export function GAMapping({
         weightage: mapping.weightage
       };
     });
+  };
+
+  // Function to fill random marks for all students (7 out of 9 boxes to make ~50 marks)
+  const handleFillRandomMarks = () => {
+    if (!selectedAssessment) return;
+    
+    const questionMaxMarks = [5, 5, 5, 5, 5, 9, 9, 9, 12];
+    const newMarksData: {[studentId: string]: number} = {};
+    const newQuestionMarks: {[studentId: string]: number[]} = {};
+    
+    students.forEach(student => {
+      // Select 7 random boxes out of 9 (4 from 5-mark, 2 from 9-mark, 1 compulsory 12-mark)
+      const selectedBoxes: number[] = [];
+      
+      // Select 4 out of 5 from the first 5 boxes
+      const fiveMarkBoxes = [0, 1, 2, 3, 4];
+      const shuffledFive = fiveMarkBoxes.sort(() => Math.random() - 0.5);
+      selectedBoxes.push(...shuffledFive.slice(0, 4));
+      
+      // Select 2 out of 3 from the next 3 boxes
+      const nineMarkBoxes = [5, 6, 7];
+      const shuffledNine = nineMarkBoxes.sort(() => Math.random() - 0.5);
+      selectedBoxes.push(...shuffledNine.slice(0, 2));
+      
+      // Always include the 12-mark compulsory question
+      selectedBoxes.push(8);
+      
+      // Fill marks for selected boxes
+      const marks = questionMaxMarks.map((maxMark, index) => {
+        if (selectedBoxes.includes(index)) {
+          // Fill 80-100% of the max marks for each selected question
+          const minScore = Math.floor(maxMark * 0.8);
+          const maxScore = maxMark;
+          return Math.floor(Math.random() * (maxScore - minScore + 1)) + minScore;
+        }
+        return 0; // Unselected boxes remain 0
+      });
+      
+      const total = marks.reduce((sum, mark) => sum + mark, 0);
+      
+      newQuestionMarks[student.id] = marks;
+      newMarksData[student.id] = total;
+    });
+    
+    setQuestionMarks(newQuestionMarks);
+    setMarksData(newMarksData);
   };
 
   const handleSubmitMarks = async () => {
@@ -443,6 +490,13 @@ export function GAMapping({
                 )}
               </div>
               <div className="flex gap-4">
+                <button
+                  onClick={handleFillRandomMarks}
+                  className="px-6 py-3 text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors text-lg font-medium flex items-center gap-2"
+                >
+                  <Trophy className="w-5 h-5" />
+                  Fill Random Marks
+                </button>
                 <button
                   onClick={() => {
                     // Clear unsaved marks from localStorage when canceling

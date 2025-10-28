@@ -97,15 +97,16 @@ export function AssessmentManagement({
       if (prev[assessmentIndex]) return prev;
       
       // Initialize with proper marks distribution and random empty boxes
+      // Structure: 5 questions of 5 marks each (attempt 4, 1 optional) + 3 questions of 9 marks each (attempt 2, 1 optional) + 1 compulsory 12 mark question = 50 total attempted
       const marksDistribution = [5, 5, 5, 5, 5, 9, 9, 9, 12];
       const marks = Array(9).fill(null);
       const coSelections = Array(9).fill(0).map(() => []);
       
-      // Randomly leave one box empty from first 5 (5-mark questions)
+      // Randomly leave one box empty from first 5 (5-mark questions) - attempt 4, 1 optional
       const emptyBox5 = Math.floor(Math.random() * 5);
       marks[emptyBox5] = null;
       
-      // Randomly leave one box empty from next 3 (9-mark questions)
+      // Randomly leave one box empty from next 3 (9-mark questions) - attempt 2, 1 optional
       const emptyBox9 = 5 + Math.floor(Math.random() * 3);
       marks[emptyBox9] = null;
       
@@ -147,8 +148,16 @@ export function AssessmentManagement({
   useEffect(() => {
     const savedAssessments = LocalStorageService.getAssessments();
     if (savedAssessments.length > 0) {
+      // Fix existing End-Term assessments with wrong maxMarks
+      const fixedAssessments = savedAssessments.map(assessment => {
+        if (assessment.type === 'End-Term' && assessment.maxMarks === 100) {
+          return { ...assessment, maxMarks: 50 };
+        }
+        return assessment;
+      });
+      
       // Update parent component with saved data
-      savedAssessments.forEach(assessment => {
+      fixedAssessments.forEach(assessment => {
         if (!assessments.find(a => a.id === assessment.id)) {
           onAddAssessment(assessment);
         }
@@ -455,9 +464,17 @@ export function AssessmentManagement({
   };
 
   const updateAssessmentType = (index: number, field: string, value: any) => {
-    const updatedAssessments = formData.assessments.map((assessment, i) => 
-      i === index ? { ...assessment, [field]: value } : assessment
-    );
+    const updatedAssessments = formData.assessments.map((assessment, i) => {
+      if (i === index) {
+        const updatedAssessment = { ...assessment, [field]: value };
+        // Auto-set maxMarks to 50 for End-Term assessments (students attempt 7 out of 9 questions)
+        if (field === 'type' && value === 'End-Term') {
+          updatedAssessment.maxMarks = 50;
+        }
+        return updatedAssessment;
+      }
+      return assessment;
+    });
     setFormData({ ...formData, assessments: updatedAssessments });
   };
 
@@ -1020,12 +1037,12 @@ export function AssessmentManagement({
                               <div className="grid grid-cols-10 gap-2">
                                 {Array.from({ length: 10 }).map((_, i) => {
                                   if (i === 9) {
-                                    // Total marks box
+                                    // Total marks box - show 50 as maxMarks (students attempt 7 out of 9 questions)
                                     const totalMarks = endTermCO[assessmentIndex]?.marks.slice(0, 9).reduce((sum, mark) => sum + (mark || 0), 0) || 0;
                                     return (
                                       <div key={i} className="relative">
                                         <div className="w-full h-10 bg-gray-100 border border-gray-300 rounded flex items-center justify-center text-sm font-medium text-gray-600">
-                                          Total: {totalMarks}
+                                          Total: {totalMarks}/50
                                         </div>
                                       </div>
                                     );
