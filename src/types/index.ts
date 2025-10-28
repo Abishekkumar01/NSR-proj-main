@@ -148,6 +148,10 @@ export interface Faculty {
   sections: string[];
   subjects: string[];
   createdAt: Date;
+  // New fields for Excel upload
+  designation?: string;
+  employeeId?: string;
+  phoneNo?: string;
   // Admin-provided primary password used for first-time registration
   initialPassword?: string;
   // Indicates whether the faculty has completed account activation/registration

@@ -55,18 +55,25 @@ function AppContent() {
         optimizedFirebase.getData('studentAssessments')
       ]);
 
+      // Fallback to localStorage if Firebase data is empty
+      const finalFacultyData = facultyData && facultyData.length > 0 ? facultyData : LocalStorageService.getFaculty();
+      const finalStudentsData = studentsData && studentsData.length > 0 ? studentsData : LocalStorageService.getStudents();
+      const finalCoursesData = coursesData && coursesData.length > 0 ? coursesData : LocalStorageService.getCourses();
+      const finalAssessmentsData = assessmentsData && assessmentsData.length > 0 ? assessmentsData : LocalStorageService.getAssessments();
+      const finalStudentAssessmentsData = studentAssessmentsData && studentAssessmentsData.length > 0 ? studentAssessmentsData : LocalStorageService.getStudentAssessments();
+
       // Auto-populate school fields for existing data
-      const studentsWithSchool = studentsData.map(student => ({
+      const studentsWithSchool = finalStudentsData.map(student => ({
         ...student,
         school: student.school || getSchoolFromDepartment(student.department)
       }));
       
-      const coursesWithSchool = coursesData.map(course => ({
+      const coursesWithSchool = finalCoursesData.map(course => ({
         ...course,
         school: course.school || getSchoolFromDepartment(course.department)
       }));
       
-      const assessmentsWithSchool = assessmentsData.map(assessment => {
+      const assessmentsWithSchool = finalAssessmentsData.map(assessment => {
         const course = coursesWithSchool.find(c => c.id === assessment.courseId);
         return {
           ...assessment,
@@ -76,10 +83,10 @@ function AppContent() {
       });
 
       setStudents(studentsWithSchool);
-      setFaculty(facultyData);
+      setFaculty(finalFacultyData);
       setCourses(coursesWithSchool);
       setAssessments(assessmentsWithSchool);
-      setStudentAssessments(studentAssessmentsData);
+      setStudentAssessments(finalStudentAssessmentsData);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -151,18 +158,27 @@ function AppContent() {
   // Faculty handlers with Firebase integration
   const handleAddFaculty = async (data: Omit<Faculty, 'id' | 'createdAt'>) => {
     try {
+      console.log('Adding faculty:', data);
       const newFaculty: Faculty = {
         id: generateId(),
         ...data,
         createdAt: new Date()
       };
       
+      console.log('Generated faculty:', newFaculty);
+      
       // Save to both Firebase and local storage
       await facultyService.addFaculty(data);
       await optimizedFirebase.saveData('faculty', newFaculty, newFaculty.id);
       
       // Update local state immediately
-      setFaculty(prev => [...prev, newFaculty]);
+      setFaculty(prev => {
+        const updated = [...prev, newFaculty];
+        console.log('Updated faculty list:', updated);
+        return updated;
+      });
+      
+      console.log('Faculty added successfully');
     } catch (error) {
       console.error('Error adding faculty:', error);
       throw error;

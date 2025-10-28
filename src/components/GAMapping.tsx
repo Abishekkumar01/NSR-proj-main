@@ -141,33 +141,66 @@ export function GAMapping({
   const totalMaxMarks = 50; // Students attempt 7 out of 9 questions to make 50 marks
 
   const handleAssessmentSelect = (assessment: Assessment) => {
-    setSelectedAssessment(assessment);
-    setShowMarkEntry(true);
-    
-    // Initialize marks data with existing marks AND unsaved marks
-    const initialMarks: {[studentId: string]: number} = {};
-    const initialQuestionMarks: {[studentId: string]: number[]} = {};
-    
-    // First load existing saved marks
-    students.forEach(student => {
-      const existingAssessment = studentAssessments.find(
-        sa => sa.studentId === student.id && sa.assessmentId === assessment.id
-      );
-      if (existingAssessment && existingAssessment.marksObtained > 0) {
-        initialMarks[student.id] = existingAssessment.marksObtained;
-        // Initialize question marks as zeros
-        initialQuestionMarks[student.id] = [0, 0, 0, 0, 0, 0, 0, 0, 0];
-      }
-    });
-    
-    // Then load unsaved marks from localStorage (this will override saved marks if any)
-    const unsavedMarks = loadUnsavedMarks(assessment.id);
-    const unsavedQuestionMarks = loadUnsavedMarks(`${assessment.id}_questions`);
-    Object.assign(initialMarks, unsavedMarks);
-    Object.assign(initialQuestionMarks, unsavedQuestionMarks);
-    
-    setMarksData(initialMarks);
-    setQuestionMarks(initialQuestionMarks);
+    try {
+      setSelectedAssessment(assessment);
+      setShowMarkEntry(true);
+      
+      // Initialize marks data with existing marks AND unsaved marks
+      const initialMarks: {[studentId: string]: number} = {};
+      const initialQuestionMarks: {[studentId: string]: number[]} = {};
+      
+      // First load existing saved marks
+      students.forEach(student => {
+        const existingAssessment = studentAssessments.find(
+          sa => sa.studentId === student.id && sa.assessmentId === assessment.id
+        );
+        if (existingAssessment && existingAssessment.marksObtained > 0) {
+          initialMarks[student.id] = existingAssessment.marksObtained;
+          
+          // For End-Term assessments, generate simple question marks from total marks
+          if (assessment.type === 'End-Term') {
+            const totalMarks = existingAssessment.marksObtained;
+            // Simple distribution: fill 7 boxes with random marks that sum to total
+            const marks = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+            const questionMaxMarks = [5, 5, 5, 5, 5, 9, 9, 9, 12];
+            
+            // Select 7 boxes randomly
+            const selectedBoxes = [0, 1, 2, 3, 5, 6, 8]; // Fixed selection for simplicity
+            
+            // Distribute marks
+            let remaining = totalMarks;
+            selectedBoxes.forEach((boxIndex, i) => {
+              if (remaining > 0) {
+                const maxForBox = questionMaxMarks[boxIndex];
+                const marksForBox = i === selectedBoxes.length - 1 ? remaining : Math.floor(Math.random() * Math.min(maxForBox, remaining)) + 1;
+                marks[boxIndex] = Math.min(maxForBox, marksForBox);
+                remaining -= marks[boxIndex];
+              }
+            });
+            
+            initialQuestionMarks[student.id] = marks;
+          } else {
+            initialQuestionMarks[student.id] = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+          }
+        }
+      });
+      
+      // Then load unsaved marks from localStorage (this will override saved marks if any)
+      const unsavedMarks = loadUnsavedMarks(assessment.id);
+      const unsavedQuestionMarks = loadUnsavedMarks(`${assessment.id}_questions`);
+      Object.assign(initialMarks, unsavedMarks);
+      Object.assign(initialQuestionMarks, unsavedQuestionMarks);
+      
+      setMarksData(initialMarks);
+      setQuestionMarks(initialQuestionMarks);
+    } catch (error) {
+      console.error('Error in handleAssessmentSelect:', error);
+      // Fallback: just set basic state
+      setSelectedAssessment(assessment);
+      setShowMarkEntry(true);
+      setMarksData({});
+      setQuestionMarks({});
+    }
   };
 
   const calculateGAScore = (marks: number, maxMarks: number, gaMapping: Assessment['gaMapping']) => {
@@ -237,6 +270,48 @@ export function GAMapping({
       
       newQuestionMarks[student.id] = marks;
       newMarksData[student.id] = total;
+    });
+    
+    setQuestionMarks(newQuestionMarks);
+    setMarksData(newMarksData);
+  };
+
+  // Function to populate marks for evaluated students (show their existing marks in question boxes)
+  const handlePopulateEvaluatedMarks = () => {
+    if (!selectedAssessment) return;
+    
+    const newMarksData: {[studentId: string]: number} = {};
+    const newQuestionMarks: {[studentId: string]: number[]} = {};
+    
+    students.forEach(student => {
+      const existingAssessment = studentAssessments.find(
+        sa => sa.studentId === student.id && sa.assessmentId === selectedAssessment.id
+      );
+      
+      if (existingAssessment && existingAssessment.marksObtained > 0) {
+        newMarksData[student.id] = existingAssessment.marksObtained;
+        
+        // Simple distribution for End-Term
+        const totalMarks = existingAssessment.marksObtained;
+        const marks = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+        const questionMaxMarks = [5, 5, 5, 5, 5, 9, 9, 9, 12];
+        const selectedBoxes = [0, 1, 2, 3, 5, 6, 8]; // Fixed selection
+        
+        let remaining = totalMarks;
+        selectedBoxes.forEach((boxIndex, i) => {
+          if (remaining > 0) {
+            const maxForBox = questionMaxMarks[boxIndex];
+            const marksForBox = i === selectedBoxes.length - 1 ? remaining : Math.floor(Math.random() * Math.min(maxForBox, remaining)) + 1;
+            marks[boxIndex] = Math.min(maxForBox, marksForBox);
+            remaining -= marks[boxIndex];
+          }
+        });
+        
+        newQuestionMarks[student.id] = marks;
+      } else {
+        newMarksData[student.id] = 0;
+        newQuestionMarks[student.id] = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+      }
     });
     
     setQuestionMarks(newQuestionMarks);
@@ -490,6 +565,13 @@ export function GAMapping({
                 )}
               </div>
               <div className="flex gap-4">
+                <button
+                  onClick={handlePopulateEvaluatedMarks}
+                  className="px-6 py-3 text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors text-lg font-medium flex items-center gap-2"
+                >
+                  <Trophy className="w-5 h-5" />
+                  Show Evaluated Marks
+                </button>
                 <button
                   onClick={handleFillRandomMarks}
                   className="px-6 py-3 text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors text-lg font-medium flex items-center gap-2"

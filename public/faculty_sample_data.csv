@@ -1,0 +1,31 @@
+S.No,Faculty Name,Designation,Employee ID,Email ID,Phone No,Department,School
+1,Dr. Asha Reddy,Professor,EMP001,asha.reddy@univ.edu,9876543210,Computer Science,School of Engineering
+2,Mr. Rajesh Kumar,Assistant Professor,EMP002,rajesh.kumar@univ.edu,9123456780,Mechanical Engineering,School of Engineering
+3,Dr. Priya Nair,Associate Professor,EMP003,priya.nair@univ.edu,9812345678,Electrical Engineering,School of Engineering
+4,Ms. Kavita Sharma,Assistant Professor,EMP004,kavita.sharma@univ.edu,9956784321,Civil Engineering,School of Engineering
+5,Dr. Arun Menon,Professor,EMP005,arun.menon@univ.edu,9785643210,Mathematics,School of Science
+6,Dr. Sneha Patil,Associate Professor,EMP006,sneha.patil@univ.edu,9845123678,Physics,School of Science
+7,Mr. Vivek Gupta,Assistant Professor,EMP007,vivek.gupta@univ.edu,9998765432,Chemistry,School of Science
+8,Ms. Divya Rao,Lecturer,EMP008,divya.rao@univ.edu,9701234567,English,School of Humanities
+9,Dr. Sanjay Joshi,Professor,EMP009,sanjay.joshi@univ.edu,9823456712,Management Studies,School of Business
+10,Mr. Abhishek Tiwari,Assistant Professor,EMP010,abhishek.tiwari@univ.edu,9887654321,Marketing,School of Business
+11,Dr. Nisha Mehta,Associate Professor,EMP011,nisha.mehta@univ.edu,9723456789,Economics,School of Social Sciences
+12,Ms. Shreya Kapoor,Lecturer,EMP012,shreya.kapoor@univ.edu,9812345609,Psychology,School of Social Sciences
+13,Dr. Deepak Sinha,Professor,EMP013,deepak.sinha@univ.edu,9898989898,Biotechnology,School of Life Sciences
+14,Mr. Rohan Verma,Assistant Professor,EMP014,rohan.verma@univ.edu,9123456701,Microbiology,School of Life Sciences
+15,Ms. Meera Iyer,Lecturer,EMP015,meera.iyer@univ.edu,9765432109,Sociology,School of Humanities
+16,Dr. Kiran Das,Professor,EMP016,kiran.das@univ.edu,9876543201,Political Science,School of Social Sciences
+17,Ms. Pooja Bhat,Assistant Professor,EMP017,pooja.bhat@univ.edu,9811122233,Fine Arts,School of Arts
+18,Dr. Anil Sharma,Professor,EMP018,anil.sharma@univ.edu,9823456790,Commerce,School of Business
+19,Ms. Neha Ghosh,Lecturer,EMP019,neha.ghosh@univ.edu,9890678123,English,School of Humanities
+20,Mr. Arvind Yadav,Assistant Professor,EMP020,arvind.yadav@univ.edu,9798654321,Data Science,School of Engineering
+21,Dr. Swathi Pillai,Associate Professor,EMP021,swathi.pillai@univ.edu,9812233445,Environmental Science,School of Science
+22,Mr. Manish Jain,Lecturer,EMP022,manish.jain@univ.edu,9900112233,Physics,School of Science
+23,Ms. Ritu Singh,Assistant Professor,EMP023,ritu.singh@univ.edu,9888811110,Computer Science,School of Engineering
+24,Dr. Vinod Rao,Professor,EMP024,vinod.rao@univ.edu,9811122299,Mechanical Engineering,School of Engineering
+25,Ms. Tanya Paul,Lecturer,EMP025,tanya.paul@univ.edu,9911002233,Sociology,School of Humanities
+26,Dr. Rakesh Patnaik,Associate Professor,EMP026,rakesh.patnaik@univ.edu,9876004321,Biotechnology,School of Life Sciences
+27,Mr. Aditya Sen,Assistant Professor,EMP027,aditya.sen@univ.edu,9767891234,Economics,School of Social Sciences
+28,Dr. Jyoti Malhotra,Professor,EMP028,jyoti.malhotra@univ.edu,9823012345,Chemistry,School of Science
+29,Ms. Rachita Bose,Lecturer,EMP029,rachita.bose@univ.edu,9990011223,Fine Arts,School of Arts
+30,Dr. Naveen Chandra,Professor,EMP030,naveen.chandra@univ.edu,9709988776,Artificial Intelligence,School of Engineering
