@@ -758,21 +758,26 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
                 const normalize = (v: any) => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
                 const seen = new Set<string>();
                 const duplicates: Student[] = [];
+                const includeSemester = !!semesterMode || !!filterSemester;
                 students.forEach((s) => {
                   const name = normalize(s.name);
                   const enr = normalize(s.enrollmentNumber);
                   const batch = normalize((s as any).batch || s.batch);
-                  if (!name || !enr || !batch) return; // require all 3 present
-                  const key = `${name}__${enr}__${batch}`;
+                  const sem = includeSemester ? String(s.semester || '') : '';
+                  if (!name || !enr || !batch) return; // require minimal
+                  const key = includeSemester ? `${name}__${enr}__${batch}__${sem}` : `${name}__${enr}__${batch}`;
                   if (seen.has(key)) duplicates.push(s);
                   else seen.add(key);
                 });
 
                 if (duplicates.length === 0) {
-                  window.alert('No duplicate students found where Name, Enrollment No., and Batch all match.');
+                  window.alert(includeSemester
+                    ? 'No duplicates found where Name, Enrollment No., Batch, and Semester all match.'
+                    : 'No duplicate students found where Name, Enrollment No., and Batch all match.'
+                  );
                   return;
                 }
-                const confirm = window.confirm(`This will delete ${duplicates.length} duplicate entries (matching Name + Enrollment No. + Batch), keeping the first occurrence. Proceed?`);
+                const confirm = window.confirm(`This will delete ${duplicates.length} duplicate entries (matching Name + Enrollment No. + Batch${includeSemester ? ' + Semester' : ''}), keeping the first occurrence. Proceed?`);
                 if (!confirm) return;
 
                 setIsRemovingDuplicates(true);

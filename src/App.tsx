@@ -128,8 +128,21 @@ function AppContent() {
   // Student handlers with Firebase integration
   const handleAddStudent = async (data: Omit<Student, 'id' | 'createdAt'>) => {
     try {
-      await studentService.addStudent(data);
-      await loadStudents(); // Reload to get the latest data
+      // Persist to Firebase and get generated id
+      const id = await studentService.addStudent(data);
+      const newStudent: Student = {
+        id,
+        createdAt: new Date(),
+        ...data,
+        school: data.department ? getSchoolFromDepartment(data.department) : undefined
+      } as Student;
+
+      // Update local cache so refresh shows the latest immediately
+      LocalStorageService.addStudent(newStudent);
+      await optimizedFirebase.saveData('students', newStudent, id);
+
+      // Reload in background to reconcile from server
+      await loadStudents();
     } catch (error) {
       console.error('Error adding student:', error);
       throw error;
