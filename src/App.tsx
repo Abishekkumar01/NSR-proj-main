@@ -18,6 +18,7 @@ import { Student, Course, Assessment, StudentAssessment, Faculty } from './types
 import { studentService } from './lib/studentService';
 import { facultyService } from './lib/facultyService';
 import { optimizedFirebase } from './lib/optimizedFirebase';
+import { LocalStorageService } from './lib/localStorage';
 import { getSchoolFromDepartment } from './lib/schoolMapping';
 
 function AppContent() {
@@ -167,8 +168,13 @@ function AppContent() {
       
       console.log('Generated faculty:', newFaculty);
       
-      // Save to both Firebase and local storage
-      await facultyService.addFaculty(data);
+      // Save to Firebase in background (do not block UI)
+      facultyService.addFaculty(data).catch((err) => {
+        console.warn('Firebase addFaculty failed; continuing with local save:', err);
+      });
+
+      // Persist locally and via optimized service (which also updates cache)
+      LocalStorageService.addFaculty(newFaculty);
       await optimizedFirebase.saveData('faculty', newFaculty, newFaculty.id);
       
       // Update local state immediately
@@ -338,6 +344,17 @@ function AppContent() {
             onUpdateStudent={handleUpdateStudent}
             onDeleteStudent={handleDeleteStudent}
             faculty={faculty}
+          />
+        );
+      case 'students-semester':
+        return (
+          <StudentManagement
+            students={students}
+            onAddStudent={handleAddStudent}
+            onUpdateStudent={handleUpdateStudent}
+            onDeleteStudent={handleDeleteStudent}
+            faculty={faculty}
+            semesterMode={true}
           />
         );
       case 'courses':

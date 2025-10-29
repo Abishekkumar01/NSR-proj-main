@@ -28,6 +28,7 @@ export function Layout({ children, currentPage, onPageChange }: LayoutProps) {
   const adminMenuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
     { id: 'students', label: 'Students', icon: Users },
+    { id: 'students-semester', label: 'Student Management Semester Wise', icon: Users },
     { id: 'courses', label: 'Courses', icon: BookOpen },
     { id: 'assessments', label: 'Assessments', icon: ClipboardList },
     { id: 'ga-mapping', label: 'Mapping', icon: GraduationCap },

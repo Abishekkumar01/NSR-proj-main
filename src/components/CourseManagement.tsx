@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Plus, Search, Edit2, Trash2, BookOpen, School } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, BookOpen, School, Upload, FileSpreadsheet, AlertTriangle } from 'lucide-react';
 import { Course, Faculty, Student } from '../types';
 import { schools, School as SchoolType } from '../data/schools';
 import { LocalStorageService } from '../lib/localStorage';
+import * as XLSX from 'xlsx';
 
 interface CourseManagementProps {
   courses: Course[];
@@ -58,6 +59,15 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
   const [coDeptOverride, setCoDeptOverride] = useState('');
   const [editingCOIndex, setEditingCOIndex] = useState<number | null>(null);
   const [editCOForm, setEditCOForm] = useState<{ coCode: string; coName: string }>({ coCode: '', coName: '' });
+  const [coSearch, setCoSearch] = useState('');
+  const filteredCOs = useMemo(() => {
+    const q = coSearch.trim().toLowerCase();
+    if (!q) return coOptions;
+    return coOptions.filter(o =>
+      o.coCode.toLowerCase().includes(q) || (o.coName || '').toLowerCase().includes(q)
+    );
+  }, [coOptions, coSearch]);
+  const [facultySearch, setFacultySearch] = useState('');
 
   // Local PO option entry helpers (manual add)
   const [newPO, setNewPO] = useState({ poCode: '', poName: '' });
@@ -66,6 +76,7 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
   const [poMgmtOptions, setPoMgmtOptions] = useState<{ poCode: string; poName: string }[]>([]);
   const [editingPOIndex, setEditingPOIndex] = useState<number | null>(null);
   const [editPOForm, setEditPOForm] = useState<{ poCode: string; poName: string }>({ poCode: '', poName: '' });
+  const [poSearch, setPoSearch] = useState('');
 
   // Batch options (synced with Student Management via LocalStorageService)
   const [batchOptions, setBatchOptions] = useState<string[]>([]);
@@ -73,6 +84,22 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
   // Advanced filters (must be declared before effects that reference them)
   const [filterSchoolId, setFilterSchoolId] = useState<string>('');
   const [filterDepartment, setFilterDepartment] = useState<string>('');
+  const [filterBatch, setFilterBatch] = useState<string>('');
+  const [filterSemester, setFilterSemester] = useState<string>('');
+
+  // Excel import modal state (for bulk course upload)
+  const [showExcelModal, setShowExcelModal] = useState(false);
+  const [excelFile, setExcelFile] = useState<File | null>(null);
+  const [excelData, setExcelData] = useState<any[]>([]);
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
+  const [uploadMessage, setUploadMessage] = useState('');
+  
+  // Clear all courses modal state
+  const [showClearAllModal, setShowClearAllModal] = useState(false);
+  
+  // Remove duplicates modal state
+  const [showRemoveDuplicatesModal, setShowRemoveDuplicatesModal] = useState(false);
+  const [duplicateCourses, setDuplicateCourses] = useState<Course[]>([]);
 
   // Load data from localStorage on component mount
   useEffect(() => {
@@ -124,7 +151,13 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
   useEffect(() => {
     if (showPOManagementModal && filterDepartment) {
       const ops = LocalStorageService.getPOOptions(filterDepartment) || [];
-      setPoMgmtOptions(ops);
+      // De-duplicate by poCode (case-insensitive)
+      const unique: { [k: string]: { poCode: string; poName: string } } = {};
+      ops.forEach(o => {
+        const key = (o.poCode || '').trim().toLowerCase();
+        if (key && !unique[key]) unique[key] = o;
+      });
+      setPoMgmtOptions(Object.values(unique));
     }
   }, [showPOManagementModal, filterDepartment]);
 
@@ -150,19 +183,26 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
     return school?.departments || [];
   }, [filterSchoolId]);
 
-  // Filter faculty based on selected school and department in the form
+  // Faculty dropdown: show all faculty, with same-department faculty sorted first
   const availableFaculty = useMemo(() => {
-    if (!formData.department) return [];
-    
-    // Find the school for the selected department
-    const school = schools.find(s => s.departments.includes(formData.department));
-    if (!school) return [];
-    
-    // Filter faculty by school and department
-    return faculty.filter(f => 
-      f.school === school.name && f.department === formData.department
-    );
+    const all = Array.isArray(faculty) ? [...faculty] : [];
+    const dept = formData.department;
+    if (!dept) return all;
+    return all.sort((a, b) => {
+      const aMatch = a.department === dept ? 0 : 1;
+      const bMatch = b.department === dept ? 0 : 1;
+      return aMatch - bMatch;
+    });
   }, [faculty, formData.department]);
+
+  const filteredFaculty = useMemo(() => {
+    const q = facultySearch.trim().toLowerCase();
+    if (!q) return availableFaculty;
+    return availableFaculty.filter(f =>
+      (f.name || '').toLowerCase().includes(q) ||
+      (f.email || '').toLowerCase().includes(q)
+    );
+  }, [availableFaculty, facultySearch]);
 
   const filteredCourses = useMemo(() => {
     let base: Course[] = courses;
@@ -181,13 +221,21 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
       base = base.filter(c => c.department === filterDepartment);
     }
 
+    if (filterBatch) {
+      base = base.filter(c => (c as any).batch === filterBatch);
+    }
+
+    if (filterSemester) {
+      base = base.filter(c => String(c.semester) === String(filterSemester));
+    }
+
     // Keep existing search behavior
     return base.filter(course =>
     course.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     course.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
     course.department.toLowerCase().includes(searchTerm.toLowerCase())
   );
-  }, [courses, filterSchoolId, filterDepartment, searchTerm]);
+  }, [courses, filterSchoolId, filterDepartment, filterBatch, filterSemester, searchTerm]);
 
   const handleSchoolSelect = (school: SchoolType) => {
     setSelectedSchool(school);
@@ -200,9 +248,8 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
     // when changing department, load that department's PO options
     const deptPOs = LocalStorageService.getPOOptions(department) || [];
     setFormData({ ...formData, department, poOptions: deptPOs });
-    // load COs for department
-    const deptCOs = LocalStorageService.getCOOptions(department) || [];
-    setCoOptions(deptCOs);
+    // For new course creation, start with NO pre-filled COs
+    setCoOptions([]);
     // load Batches for department
     const deptBatches = LocalStorageService.getBatchOptions(department) || [];
     setBatchOptions(deptBatches);
@@ -312,6 +359,183 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
     setSchoolIdPendingDelete(null);
   };
 
+  // Excel helpers
+  const handleExcelFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files && e.target.files[0] ? e.target.files[0] : null;
+    setExcelFile(file);
+    setExcelData([]);
+    setUploadStatus('idle');
+    setUploadMessage('');
+  };
+
+  const resolveFaculty = (value: string) => {
+    const q = String(value || '').toLowerCase().trim();
+    if (!q) return null;
+    return (faculty || []).find(f => (f.name || '').toLowerCase().includes(q) || (f.email || '').toLowerCase().includes(q)) || null;
+  };
+
+  const normalizeDepartment = (value: string) => String(value || '').trim();
+  const normalizeBatch = (value: string) => {
+    const v = String(value || '').trim();
+    if (!v) return '';
+    const fullYears = v.match(/\b(20\d{2})\D+(20\d{2})\b/);
+    if (fullYears) {
+      const start = fullYears[1];
+      const endYY = fullYears[2].slice(2);
+      return `${start}-${endYY}`;
+    }
+    const canonical = v.match(/^20\d{2}-\d{2}$/);
+    if (canonical) return v;
+    const short = v.match(/^(\d{2})\s*[-–to]+\s*(\d{2})$/i);
+    if (short) {
+      return `20${short[1]}-${short[2]}`;
+    }
+    return v;
+  };
+
+  const processExcelFile = () => {
+    if (!excelFile) return;
+    setUploadStatus('processing');
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetNames = workbook.SheetNames;
+        const collected: any[] = [];
+        let totalRows = 0;
+
+        sheetNames.forEach((name) => {
+          const sheet = workbook.Sheets[name];
+          const rows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+          totalRows += rows.length + 1; // incl header approx
+          rows.forEach((r, idx) => {
+            const code = String(r['Course Code'] || r['Code'] || '').trim();
+            const name = String(r['Course Name'] || r['Name'] || '').trim();
+            const department = normalizeDepartment(r['Department']);
+            const batch = normalizeBatch(r['Batch'] || r['Select batch']);
+            const semesterRaw = r['Semester'];
+            const creditsRaw = r['Credits'];
+            const facultyLookup = String(r['Faculty Name'] || r['Faculty'] || r['Faculty Email'] || '').trim();
+
+            const semester = parseInt(String(semesterRaw).trim(), 10);
+            const credits = parseInt(String(creditsRaw).trim(), 10);
+            const fac = resolveFaculty(facultyLookup);
+
+            const errors: string[] = [];
+            if (!code) errors.push('Course Code');
+            if (!name) errors.push('Course Name');
+            if (!department) errors.push('Department');
+            if (!batch) errors.push('Batch');
+            if (!(semester >= 1 && semester <= 8)) errors.push('Semester(1-8)');
+            if (!(credits >= 1 && credits <= 6)) errors.push('Credits(1-6)');
+            // Make faculty optional during import; if not found, keep provided text in facultyName
+
+            if (errors.length === 0) {
+              collected.push({
+                code,
+                name,
+                department,
+                batch,
+                semester,
+                credits,
+                facultyId: fac?.id,
+                facultyName: fac?.name || facultyLookup || '',
+                poOptions: [],
+                selectedPOs: [],
+                coOptions: []
+              });
+            }
+          });
+        });
+
+        setExcelData(collected);
+        setUploadStatus('success');
+        setUploadMessage(`Parsed ${collected.length} valid course(s) from ${sheetNames.length} sheet(s). Rows without strict faculty match were kept with provided faculty text.`);
+      } catch (err) {
+        setUploadStatus('error');
+        setUploadMessage('Failed to parse Excel. Verify columns and data.');
+        console.error(err);
+      }
+    };
+    reader.readAsArrayBuffer(excelFile);
+  };
+
+  const importCourses = async () => {
+    if (excelData.length === 0) return;
+    try {
+      setUploadStatus('processing');
+      setUploadMessage('Importing courses...');
+      for (const c of excelData) {
+        await onAddCourse(c);
+      }
+      setUploadStatus('success');
+      setUploadMessage(`Successfully imported ${excelData.length} courses.`);
+      setTimeout(() => {
+        setShowExcelModal(false);
+        setExcelData([]);
+        setExcelFile(null);
+        setUploadStatus('idle');
+        setUploadMessage('');
+      }, 1500);
+    } catch (e) {
+      setUploadStatus('error');
+      setUploadMessage('Failed to import some courses. See console.');
+      console.error(e);
+    }
+  };
+
+  const downloadCourseTemplate = () => {
+    const templateData = [
+      {
+        'Course Code': 'CSE101',
+        'Course Name': 'Data Structures and Algorithms',
+        'Department': 'Computer Science and Engineering',
+        'Batch': '2023-27',
+        'Semester': 3,
+        'Credits': 4,
+        'Faculty Name': 'Dr. Abc (or email)'
+      }
+    ];
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Courses');
+    XLSX.writeFile(wb, 'course_template.xlsx');
+  };
+
+  const handleClearAllCourses = () => {
+    // Delete all courses one by one
+    courses.forEach(course => {
+      onDeleteCourse(course.id);
+    });
+    setShowClearAllModal(false);
+  };
+
+  const findDuplicateCourses = () => {
+    const seen = new Set<string>();
+    const duplicates: Course[] = [];
+    
+    courses.forEach(course => {
+      const key = `${course.code}|${course.name}`.toLowerCase();
+      if (seen.has(key)) {
+        duplicates.push(course);
+      } else {
+        seen.add(key);
+      }
+    });
+    
+    setDuplicateCourses(duplicates);
+    setShowRemoveDuplicatesModal(true);
+  };
+
+  const removeDuplicateCourses = () => {
+    duplicateCourses.forEach(course => {
+      onDeleteCourse(course.id);
+    });
+    setShowRemoveDuplicatesModal(false);
+    setDuplicateCourses([]);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     // Persist course-specific CO options with the course
@@ -360,12 +584,11 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
       poOptions: course.poOptions || [],
       selectedPOs: course.selectedPOs || []
     });
-    // Load course-specific COs if present; otherwise load department defaults
+    // Load course-specific COs if present; otherwise start with empty
     if ((course as any).coOptions && (course as any).coOptions.length > 0) {
       setCoOptions((course as any).coOptions);
-    } else if (course.department) {
-      const deptCOs = LocalStorageService.getCOOptions(course.department) || [];
-      setCoOptions(deptCOs);
+    } else {
+      setCoOptions([]);
     }
     // Load department batch options for editing
     if (course.department) {
@@ -410,8 +633,9 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
     const code = newPO.poCode.trim();
     const name = newPO.poName.trim();
     if (!code || !name) return;
-    // Enforce uniqueness by title (poName)
-    if (poMgmtOptions.find(o => o.poName.toLowerCase() === name.toLowerCase())) {
+    // Enforce uniqueness by code OR title
+    const dup = poMgmtOptions.find(o => o.poCode.toLowerCase() === code.toLowerCase() || o.poName.toLowerCase() === name.toLowerCase());
+    if (dup) {
       setNewPO({ poCode: '', poName: '' });
       return;
     }
@@ -450,9 +674,9 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
     const code = editPOForm.poCode.trim();
     const name = editPOForm.poName.trim();
     if (!code || !name) return;
-    // Enforce uniqueness by title, excluding the item being edited
-    const duplicateTitle = poMgmtOptions.some((o, i) => i !== editingPOIndex && o.poName.toLowerCase() === name.toLowerCase());
-    if (duplicateTitle) return;
+    // Enforce uniqueness by code or title, excluding the item being edited
+    const duplicate = poMgmtOptions.some((o, i) => i !== editingPOIndex && (o.poName.toLowerCase() === name.toLowerCase() || o.poCode.toLowerCase() === code.toLowerCase()));
+    if (duplicate) return;
     const updated = poMgmtOptions.map((o, i) => (i === editingPOIndex ? { poCode: code, poName: name } : o));
     setPoMgmtOptions(updated);
     LocalStorageService.savePOOptions(filterDepartment, updated);
@@ -530,6 +754,27 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
         </div>
         <div className="flex gap-3">
           <button
+            onClick={() => setShowExcelModal(true)}
+            className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2"
+          >
+            <Upload className="w-5 h-5" />
+            Upload Excel
+          </button>
+          <button
+            onClick={findDuplicateCourses}
+            className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 transition-colors flex items-center gap-2"
+          >
+            <AlertTriangle className="w-5 h-5" />
+            Remove Duplicates
+          </button>
+          <button
+            onClick={() => setShowClearAllModal(true)}
+            className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+          >
+            <Trash2 className="w-5 h-5" />
+            Clear All Courses
+          </button>
+          <button
             onClick={() => setShowSchoolModal(true)}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
           >
@@ -541,7 +786,7 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
 
       {/* Search and Advanced Filters */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-6 gap-4">
           {/* School */}
           <div className="lg:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-1">School (required)</label>
@@ -583,6 +828,43 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
             </div>
           </div>
 
+          {/* Batch */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Batch</label>
+            <select
+              value={filterBatch}
+              onChange={(e) => setFilterBatch(e.target.value)}
+              disabled={!filterSchoolId}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 text-sm"
+            >
+              <option value="">All Batches</option>
+              {Array.from(new Set(courses
+                .filter(c => !filterDepartment || c.department === filterDepartment)
+                .map(c => (c as any).batch)))
+                .filter(Boolean)
+                .sort()
+                .map(b => (
+                  <option key={b as string} value={b as string}>{b as string}</option>
+                ))}
+            </select>
+          </div>
+
+          {/* Semester */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Semester</label>
+            <select
+              value={filterSemester}
+              onChange={(e) => setFilterSemester(e.target.value)}
+              disabled={!filterSchoolId}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 text-sm"
+            >
+              <option value="">All Semesters</option>
+              {[1,2,3,4,5,6,7,8].map(s => (
+                <option key={s} value={String(s)}>{s}</option>
+              ))}
+            </select>
+          </div>
+
           {/* Search */}
           <div className="lg:col-span-4">
             <div className="relative">
@@ -598,10 +880,10 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
         </div>
 
           {/* Reset */}
-          <div className="lg:col-span-4 flex justify-end">
+          <div className="lg:col-span-5 flex justify-end">
             <button
               type="button"
-              onClick={() => { setFilterSchoolId(''); setFilterDepartment(''); }}
+              onClick={() => { setFilterSchoolId(''); setFilterDepartment(''); setFilterBatch(''); }}
               className="px-3 py-2 text-sm text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
             >
               Reset Filters
@@ -614,6 +896,158 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
           </div>
         )}
       </div>
+
+      {/* Course Count Display */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-gray-600">
+            Total courses loaded: <span className="font-semibold text-gray-900">{courses.length}</span> | 
+            Filtered: <span className="font-semibold text-gray-900">{filteredCourses.length}</span> | 
+            Total credits (filtered): <span className="font-semibold text-gray-900">{filteredCourses.reduce((sum, c) => sum + (c.credits || 0), 0)}</span>
+          </div>
+          {filteredCourses.length !== courses.length && (
+            <div className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
+              Filters active
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Excel Upload Modal */}
+      {showExcelModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg w-full max-w-3xl mx-4 overflow-hidden">
+            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="w-5 h-5 text-purple-600" />
+                <h3 className="text-lg font-semibold text-gray-900">Upload Courses from Excel</h3>
+              </div>
+              <button onClick={() => setShowExcelModal(false)} className="text-gray-600 hover:text-gray-800">×</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="text-sm text-gray-600">
+                Expected columns: <strong>Course Code</strong>, <strong>Course Name</strong>, <strong>Department</strong>, <strong>Batch</strong>, <strong>Semester</strong>, <strong>Credits</strong>, <strong>Faculty Name</strong> (or email). CO mapping is excluded.
+              </div>
+              <div className="flex items-center gap-3">
+                <input type="file" accept=".xlsx,.xls" onChange={handleExcelFileChange} />
+                <button onClick={downloadCourseTemplate} className="px-3 py-2 text-sm bg-gray-100 rounded border">Download Template</button>
+                <button onClick={processExcelFile} disabled={!excelFile} className={`px-3 py-2 text-sm rounded ${excelFile ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-gray-100 text-gray-400'}`}>Process File</button>
+              </div>
+              {uploadMessage && (
+                <div className={`text-sm ${uploadStatus === 'error' ? 'text-red-600' : uploadStatus === 'processing' ? 'text-blue-600' : 'text-green-700'}`}>{uploadMessage}</div>
+              )}
+              {excelData.length > 0 && (
+                <div className="text-sm text-gray-700">Ready to import <strong>{excelData.length}</strong> course(s).</div>
+              )}
+            </div>
+            <div className="p-6 border-t bg-white flex justify-end gap-3">
+              <button onClick={() => setShowExcelModal(false)} className="px-4 py-2 bg-gray-100 rounded">Cancel</button>
+              <button onClick={importCourses} disabled={excelData.length === 0} className={`px-4 py-2 rounded ${excelData.length === 0 ? 'bg-gray-100 text-gray-400' : 'bg-purple-600 text-white hover:bg-purple-700'}`}>Import Courses</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear All Courses Confirmation Modal */}
+      {showClearAllModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg w-full max-w-md mx-4">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+                <h3 className="text-lg font-semibold text-gray-900">Clear All Courses</h3>
+              </div>
+            </div>
+            <div className="p-6">
+              <p className="text-gray-700 mb-4">
+                Are you sure you want to delete all {courses.length} courses? This action cannot be undone.
+              </p>
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-sm text-red-700">
+                  <strong>Warning:</strong> This will permanently remove all course data including COs, POs, and faculty assignments.
+                </p>
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                onClick={() => setShowClearAllModal(false)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleClearAllCourses}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Delete All Courses
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Remove Duplicates Confirmation Modal */}
+      {showRemoveDuplicatesModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg w-full max-w-2xl mx-4">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-6 h-6 text-orange-600" />
+                <h3 className="text-lg font-semibold text-gray-900">Remove Duplicate Courses</h3>
+              </div>
+            </div>
+            <div className="p-6">
+              <p className="text-gray-700 mb-4">
+                Found <strong>{duplicateCourses.length}</strong> duplicate courses based on Course Code + Course Name combination.
+              </p>
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4">
+                <p className="text-sm text-orange-700">
+                  <strong>Note:</strong> Duplicates are identified by matching Course Code and Course Name. The first occurrence will be kept, duplicates will be removed.
+                </p>
+              </div>
+              {duplicateCourses.length > 0 && (
+                <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-lg">
+                  <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
+                    <div className="grid grid-cols-3 gap-4 text-sm font-medium text-gray-700">
+                      <div>Course Code</div>
+                      <div>Course Name</div>
+                      <div>Department</div>
+                    </div>
+                  </div>
+                  {duplicateCourses.map((course, index) => (
+                    <div key={course.id} className="px-4 py-2 border-b border-gray-100 last:border-b-0">
+                      <div className="grid grid-cols-3 gap-4 text-sm text-gray-900">
+                        <div className="font-medium">{course.code}</div>
+                        <div>{course.name}</div>
+                        <div>{course.department}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="p-6 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                onClick={() => setShowRemoveDuplicatesModal(false)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={removeDuplicateCourses}
+                disabled={duplicateCourses.length === 0}
+                className={`px-4 py-2 rounded-lg transition-colors ${
+                  duplicateCourses.length === 0 
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                    : 'bg-orange-600 text-white hover:bg-orange-700'
+                }`}
+              >
+                Remove {duplicateCourses.length} Duplicates
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Courses Table */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -688,13 +1122,13 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg w-full max-w-5xl mx-4 overflow-hidden flex flex-col">
+          <div className="bg-white rounded-lg w-full max-w-6xl max-h-[90vh] mx-4 overflow-hidden">
             <div className="p-4 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900">
                 {editingCourse ? 'Edit Course' : 'Add New Course'}
               </h3>
             </div>
-            <form onSubmit={handleSubmit} className="flex flex-col">
+            <form onSubmit={handleSubmit}>
               <div className="p-4 space-y-6">
                 {/* Top row: Course Code, Course Name, Department, Batch */}
                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
@@ -776,34 +1210,44 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Faculty Name</label>
-                    <select
-                      required
-                      value={formData.facultyId}
-                      onChange={(e) => {
-                        const selectedFaculty = availableFaculty.find(f => f.id === e.target.value);
-                        setFormData({ 
-                          ...formData, 
-                          facultyId: e.target.value,
-                          facultyName: selectedFaculty?.name || ''
-                        });
-                      }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                      disabled={!formData.department || availableFaculty.length === 0}
-                    >
-                      <option value="">
-                        {!formData.department 
-                          ? "Select department first" 
-                          : availableFaculty.length === 0 
-                            ? "No faculty found for this department" 
-                            : "Select faculty member"
-                        }
-                      </option>
-                      {availableFaculty.map(faculty => (
-                        <option key={faculty.id} value={faculty.id}>
-                          {faculty.name} ({faculty.email})
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={facultySearch}
+                        onChange={(e) => setFacultySearch(e.target.value)}
+                        placeholder="Search name or email (e.g., jain)"
+                        className="w-1/2 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        disabled={!formData.department}
+                      />
+                      <select
+                        required
+                        value={formData.facultyId}
+                        onChange={(e) => {
+                          const selectedFaculty = filteredFaculty.find(f => f.id === e.target.value);
+                          setFormData({ 
+                            ...formData, 
+                            facultyId: e.target.value,
+                            facultyName: selectedFaculty?.name || ''
+                          });
+                        }}
+                        className="w-1/2 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        disabled={!formData.department || filteredFaculty.length === 0}
+                      >
+                        <option value="">
+                          {!formData.department 
+                            ? "Select department first" 
+                            : filteredFaculty.length === 0 
+                              ? "No matching faculty" 
+                              : "Select faculty member"
+                          }
                         </option>
-                      ))}
-                    </select>
+                        {filteredFaculty.map(faculty => (
+                          <option key={faculty.id} value={faculty.id}>
+                            {faculty.name} ({faculty.email})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     {formData.department && availableFaculty.length === 0 && (
                       <p className="text-xs text-amber-600 mt-1">
                         No faculty members found for {formData.department}. 
@@ -814,12 +1258,21 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
                   </div>
                 </div>
 
-              {/* Inline CO creation inside Add Course */}
-              <div className="space-y-2">
+              {/* Inline CO creation inside Add Course - compact, scrollable */}
+              <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <label className="block text-sm font-medium text-gray-700">Course Outcomes (CO) Options</label>
                     <span className="text-xs text-gray-600">{coOptions.length} COs</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={coSearch}
+                      onChange={(e) => setCoSearch(e.target.value)}
+                      placeholder="Search COs"
+                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    />
                   </div>
                 </div>
                 <div className="bg-gray-50 p-3 rounded-lg border">
@@ -856,9 +1309,9 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
                       Add CO Option
                     </button>
                   </div>
-                  {coOptions.length > 0 && (
-                    <div className="mt-2 space-y-2">
-                      {coOptions.map((o, idx) => (
+                  {filteredCOs.length > 0 && (
+                    <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-1">
+                      {filteredCOs.map((o, idx) => (
                         <div key={`${o.coCode}-${o.coName}-${idx}`} className="flex items-center justify-between bg-white px-3 py-2 rounded-lg border text-sm">
                           {editingCOIndex === idx ? (
                             <div className="flex flex-col w-full gap-2 md:flex-row md:items-center">
@@ -899,7 +1352,7 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
                       ))}
                     </div>
                   )}
-                  {formData.department && coOptions.length === 0 && (
+                  {formData.department && filteredCOs.length === 0 && (
                     <div className="mt-2 text-xs text-gray-500">No COs yet for {formData.department}. Add above.</div>
                   )}
                 </div>
@@ -907,7 +1360,7 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
 
               {/* PO mapping removed from here; managed via external modal */}
               </div>
-              <div className="p-4 border-t bg-white sticky bottom-0 flex justify-end gap-3">
+              <div className="p-4 border-t bg-white flex justify-end gap-3">
                 <button
                   type="button"
                   onClick={resetForm}
@@ -1143,27 +1596,28 @@ export function CourseManagement({ courses, faculty, students, onAddCourse, onUp
                 </button>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">PO options created for this department</label>
-                <select
-                  value={''}
-                  onChange={() => {}}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                >
-                  <option value="" disabled>{poMgmtOptions.length === 0 ? 'No POs yet' : 'Browse PO list'}</option>
-                  {poMgmtOptions.map((o) => (
-                    <option key={o.poCode} value={o.poCode}>
-                      {o.poCode} {o.poName ? `- ${o.poName}` : ''}
-                    </option>
-                  ))}
-                </select>
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-medium text-gray-600">POs created for this program</label>
+                <input
+                  type="text"
+                  value={poSearch}
+                  onChange={(e) => setPoSearch(e.target.value)}
+                  placeholder="Search PO code or title"
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                />
               </div>
 
               {poMgmtOptions.length > 0 && (
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Manage PO Options:</label>
-                  <div className="space-y-2">
-                    {poMgmtOptions.map((o, idx) => (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-1">
+                    {poMgmtOptions
+                      .filter(o => {
+                        const q = poSearch.trim().toLowerCase();
+                        if (!q) return true;
+                        return o.poCode.toLowerCase().includes(q) || (o.poName || '').toLowerCase().includes(q);
+                      })
+                      .map((o, idx) => (
                       <div key={`${o.poCode}-${o.poName}-${idx}`} className="flex items-center justify-between bg-white px-3 py-2 rounded-lg border text-sm">
                         {editingPOIndex === idx ? (
                           <div className="flex flex-col w-full gap-2 md:flex-row md:items-center">

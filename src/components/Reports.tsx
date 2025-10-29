@@ -27,6 +27,7 @@ interface FilterState {
   batch: string;
   section?: string;
   faculty: string;
+  course: string;
   student: string;
   semesters: number[];
   studentSemesters: number[];
@@ -43,6 +44,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
     batch: '',
     section: '',
     faculty: '',
+    course: '',
     student: '',
     semesters: [],
     studentSemesters: []
@@ -57,6 +59,10 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
     poCode: '',
     percentage: 0
   });
+
+  // Inline edit state for CO-PO matrix
+  const [inlineEditCell, setInlineEditCell] = useState<{ coCode: string; poCode: string } | null>(null);
+  const [inlineEditValue, setInlineEditValue] = useState<string>('');
 
   // Load CO-PO mappings on component mount
   React.useEffect(() => {
@@ -77,6 +83,13 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
     }
     // Fallback when batch not selected: allow up to 10 semesters
     return Array.from({ length: 10 }, (_v, i) => i + 1);
+  };
+
+  // Determine if there are any awarded marks in the current filter scope
+  const hasMarksInCurrentScope = () => {
+    const allowedStudentIds = new Set(filteredData.students.map(s => s.id));
+    const allowedAssessmentIds = new Set(filteredData.assessments.map(a => a.id));
+    return studentAssessments.some(sa => allowedStudentIds.has(sa.studentId) && allowedAssessmentIds.has(sa.assessmentId));
   };
 
   // Get filtered data based on current filters
@@ -109,27 +122,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
       filteredFaculty = filteredFaculty.filter(f => f.department === filters.department);
     }
 
-    // Filter assessments based on filtered courses
-    filteredAssessments = assessments.filter(a => {
-      const assessmentSchool = a.school || getSchoolFromDepartment(a.department || '');
-      const assessmentDepartment = a.department;
-      
-      // Check if assessment matches school filter
-      if (filters.school) {
-        const selectedSchool = schools.find(s => s.id === filters.school);
-        if (selectedSchool && assessmentSchool !== selectedSchool.name) {
-          return false;
-        }
-      }
-      
-      // Check if assessment matches department filter
-      if (filters.department && assessmentDepartment !== filters.department) {
-        return false;
-      }
-      
-      // Check if assessment's course is in filtered courses
-      return filteredCourses.some(c => c.id === a.courseId);
-    });
+    // (Defer assessment filtering until after course/faculty filters)
 
     // Apply batch filter
     if (filters.batch) {
@@ -141,6 +134,18 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
     // Apply faculty filter
     if (filters.faculty) {
       filteredCourses = filteredCourses.filter(c => c.facultyId === filters.faculty);
+    }
+
+    // Apply course filter
+    if (filters.course) {
+      const courseQuery = filters.course.trim().toLowerCase();
+      // If filters.course holds an ID from select, prefer exact id match; otherwise name/code contains
+      const hasIdMatch = filteredCourses.some(c => c.id === filters.course);
+      filteredCourses = hasIdMatch
+        ? filteredCourses.filter(c => c.id === filters.course)
+        : filteredCourses.filter(c =>
+            (c.name || '').toLowerCase().includes(courseQuery) || (c.code || '').toLowerCase().includes(courseQuery)
+          );
     }
 
     // Apply student filter
@@ -159,6 +164,11 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
       filteredStudents = filteredStudents.filter(s => allowed.has(s.semester));
     }
 
+    // Finally, filter assessments based on the finalized filteredCourses set
+    filteredAssessments = assessments.filter(a =>
+      filteredCourses.some(c => c.id === a.courseId)
+    );
+
     return {
       students: filteredStudents,
       assessments: filteredAssessments,
@@ -166,6 +176,9 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
       faculty: filteredFaculty
     };
   }, [students, assessments, courses, faculty, filters]);
+
+  // Helper: unique student count by roll number within a given list
+  const countUniqueByRoll = (arr: { rollNumber: string }[]) => new Set(arr.map(s => s.rollNumber)).size;
 
   // Calculate GA reports
   const gaReports = useMemo(() => {
@@ -175,6 +188,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
       const studentAssessmentsForStudent = studentAssessments.filter(sa => sa.studentId === student.id && allowedAssessmentIds.has(sa.assessmentId));
       
       const gaScores: GAReport['gaScores'] = {};
+      const gaWeightSums: Record<string, number> = {};
       
       graduateAttributes.forEach(ga => {
         gaScores[ga.code] = {
@@ -189,20 +203,24 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
       studentAssessmentsForStudent.forEach(sa => {
         const assessment = filteredData.assessments.find(a => a.id === sa.assessmentId);
         if (!assessment) return;
+        const course = filteredData.courses.find(c => c.id === assessment.courseId) || courses.find(c => c.id === assessment.courseId);
+        const courseCredit = Math.max(1, course?.credits || 1);
         const percent = sa.maxMarks > 0 ? (sa.marksObtained / sa.maxMarks) * 100 : 0;
         (assessment.gaMapping || []).forEach(gam => {
           const gaData = gaScores[gam.gaCode];
           if (!gaData) return;
-          const gaScore = percent * (gam.weightage / 100);
+          const gaScore = percent * (gam.weightage / 100) * courseCredit;
           gaData.totalScore += gaScore;
-          gaData.assessmentCount += 1;
+          gaData.assessmentCount += 1; // keep count for display
+          gaWeightSums[gam.gaCode] = (gaWeightSums[gam.gaCode] || 0) + courseCredit;
         });
       });
 
       Object.keys(gaScores).forEach(gaCode => {
         const gaData = gaScores[gaCode];
-        if (gaData.assessmentCount > 0) {
-          gaData.averageScore = gaData.totalScore / gaData.assessmentCount;
+        const wSum = gaWeightSums[gaCode] || 0;
+        if (wSum > 0) {
+          gaData.averageScore = gaData.totalScore / wSum;
           
           if (gaData.averageScore >= 80) {
             gaData.level = 'Advanced';
@@ -231,36 +249,36 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
 
   // Chart data generators
   const getSchoolData = () => {
-    // Apply current non-school filters to base students; include semester selection
-    const baseStudents = students.filter(s => {
-      if (filters.department && s.department !== filters.department) return false;
-      if (filters.batch && s.batch !== filters.batch) return false;
-      if (filters.section && (s.section || '') !== filters.section) return false;
-      if (filters.student && s.id !== filters.student) return false;
-      if (filters.semesters.length > 0 && !filters.semesters.includes(s.semester)) return false;
-      return true;
-    });
+    // Use already filtered datasets so all filters are respected
+    const baseStudents = filteredData.students;
+    const baseCourses = filteredData.courses;
+    const baseFaculty = filteredData.faculty;
+    const baseAssessments = filteredData.assessments;
 
-    const schoolStats = schools.map(school => {
+    const schoolsToUse = filters.school
+      ? schools.filter(s => s.id === filters.school)
+      : schools;
+
+    const schoolStats = schoolsToUse.map(school => {
       const schoolStudents = baseStudents.filter(s => {
         const studentSchool = s.school || getSchoolFromDepartment(s.department);
         return studentSchool === school.name;
       });
-      const schoolCourses = courses.filter(c => {
+      const schoolCourses = baseCourses.filter(c => {
         const courseSchool = c.school || getSchoolFromDepartment(c.department);
         return courseSchool === school.name;
       });
-      const schoolFaculty = faculty.filter(f => f.school === school.name);
+      const schoolFaculty = baseFaculty.filter(f => f.school === school.name);
+      const schoolAssessments = baseAssessments.filter(a =>
+        schoolCourses.some(c => c.id === a.courseId)
+      );
       
       return {
         name: school.name,
-        students: schoolStudents.length,
+        students: countUniqueByRoll(schoolStudents),
         courses: schoolCourses.length,
         faculty: schoolFaculty.length,
-        assessments: assessments.filter(a => {
-          const assessmentSchool = a.school || getSchoolFromDepartment(a.department || '');
-          return assessmentSchool === school.name || schoolCourses.some(c => c.id === a.courseId);
-        }).length
+        assessments: schoolAssessments.length
       };
     });
 
@@ -269,7 +287,6 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
 
   const getDepartmentData = () => {
     if (!filters.school) return [];
-    
     const selectedSchool = schools.find(s => s.id === filters.school);
     if (!selectedSchool) return [];
 
@@ -277,15 +294,16 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
       const deptStudents = filteredData.students.filter(s => s.department === dept);
       const deptCourses = filteredData.courses.filter(c => c.department === dept);
       const deptFaculty = filteredData.faculty.filter(f => f.department === dept);
+      const deptAssessments = filteredData.assessments.filter(a =>
+        deptCourses.some(c => c.id === a.courseId)
+      );
       
       return {
         name: dept,
-        students: deptStudents.length,
+        students: countUniqueByRoll(deptStudents),
         courses: deptCourses.length,
         faculty: deptFaculty.length,
-        assessments: assessments.filter(a => 
-          deptCourses.some(c => c.id === a.courseId)
-        ).length
+        assessments: deptAssessments.length
       };
     });
   };
@@ -364,79 +382,189 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
   };
 
   // CO distribution with actual performance scores based on student marks
+  // COs are course-specific (CO1 of DSA != CO1 of OS). Aggregate by courseId+coCode.
   const getCODistributionData = () => {
-    const coPerformanceMap: Record<string, { name: string; totalScore: number; count: number; totalWeight: number }> = {};
+    const coPerformanceMap: Record<string, { name: string; totalScore: number; contributionCount: number; totalWeight: number; courseId: string; coCode: string; studentIds: Set<string>; weightSum: number }> = {};
     
-    // Initialize COs from assessments
+    // Initialize COs from filtered assessments only
     filteredData.assessments.forEach(a => {
+      const course = courses.find(c => c.id === a.courseId);
+      const courseLabel = course ? (course.code || course.name) : a.courseId;
       (a.coMapping || []).forEach(co => {
-        if (!coPerformanceMap[co.coCode]) {
-          coPerformanceMap[co.coCode] = { name: co.coCode, totalScore: 0, count: 0, totalWeight: 0 };
+        const key = `${a.courseId}:${co.coCode}`;
+        if (!coPerformanceMap[key]) {
+          coPerformanceMap[key] = { name: `${courseLabel} • ${co.coCode}`, totalScore: 0, contributionCount: 0, totalWeight: 0, courseId: a.courseId, coCode: co.coCode, studentIds: new Set<string>(), weightSum: 0 };
         }
-        coPerformanceMap[co.coCode].totalWeight += co.weightage;
+        coPerformanceMap[key].totalWeight += co.weightage;
       });
     });
 
-    // Calculate performance scores from student assessments
+    // Calculate performance scores from student assessments, restricted to filtered students
+    const allowedStudentIds = new Set(filteredData.students.map(s => s.id));
     studentAssessments.forEach(sa => {
+      if (!allowedStudentIds.has(sa.studentId)) return;
       const assessment = filteredData.assessments.find(a => a.id === sa.assessmentId);
       if (!assessment || !assessment.coMapping) return;
+      const course = filteredData.courses.find(c => c.id === assessment.courseId) || courses.find(c => c.id === assessment.courseId);
+      const courseCredit = Math.max(1, course?.credits || 1);
 
-      const studentPercentage = (sa.marksObtained / sa.maxMarks) * 100;
+      const studentPercentage = sa.maxMarks > 0 ? (sa.marksObtained / sa.maxMarks) * 100 : 0;
       
       assessment.coMapping.forEach(co => {
-        if (coPerformanceMap[co.coCode]) {
-          const coScore = (studentPercentage * co.weightage) / 100;
-          coPerformanceMap[co.coCode].totalScore += coScore;
-          coPerformanceMap[co.coCode].count += 1;
+        const key = `${assessment.courseId}:${co.coCode}`;
+        const entry = coPerformanceMap[key];
+        if (entry) {
+          const coScore = ((studentPercentage * co.weightage) / 100) * courseCredit;
+          entry.totalScore += coScore;
+          entry.contributionCount += 1;
+          entry.studentIds.add(sa.studentId);
+          entry.weightSum += courseCredit;
         }
       });
     });
 
     return Object.values(coPerformanceMap).map(co => ({
       name: co.name,
-      value: co.count > 0 ? co.totalScore / co.count : 0,
-      count: co.count,
-      averageWeight: co.totalWeight / filteredData.assessments.filter(a => a.coMapping?.some(c => c.coCode === co.name)).length || 0
+      value: co.weightSum > 0 ? co.totalScore / co.weightSum : 0,
+      count: co.studentIds.size,
+      averageWeight: co.totalWeight / (filteredData.assessments.filter(a => a.coMapping?.some(c => `${a.courseId}:${c.coCode}` === `${co.courseId}:${co.coCode}`)).length || 1)
     }));
   };
 
   // PO distribution with actual performance scores based on student marks
   const getPODistributionData = () => {
-    const poPerformanceMap: Record<string, { name: string; totalScore: number; count: number; totalWeight: number }> = {};
-    
-    // Initialize POs from assessments
-    filteredData.assessments.forEach(a => {
-      (a.poMapping || []).forEach(po => {
-        if (!poPerformanceMap[po.poCode]) {
-          poPerformanceMap[po.poCode] = { name: po.poCode, totalScore: 0, count: 0, totalWeight: 0 };
-        }
-        poPerformanceMap[po.poCode].totalWeight += po.weightage;
-      });
+    const poPerformanceMap: Record<string, { name: string; totalScore: number; contributionCount: number; studentIds: Set<string>; weightSum: number }> = {};
+
+    // Build CO->PO mappings per course and consider only mappings that belong to currently filtered courses
+    const filteredCourseIds = new Set(filteredData.courses.map(c => c.id));
+    const coPoByCourse: Record<string, { coCode: string; poCode: string; percentage: number }[]> = {};
+    coPoMappings.forEach(m => {
+      if (!m.courseId) return; // ignore global mappings for aggregation
+      if (!filteredCourseIds.has(m.courseId)) return; // only include current-scope courses
+      if (m.percentage <= 0) return; // ignore 0% mappings
+      if (!coPoByCourse[m.courseId]) coPoByCourse[m.courseId] = [];
+      coPoByCourse[m.courseId].push({ coCode: m.coCode, poCode: m.poCode, percentage: m.percentage });
     });
 
-    // Calculate performance scores from student assessments
+    // Calculate performance scores from student assessments restricted to filtered students and to courses with mappings
+    const allowedStudentIds = new Set(filteredData.students.map(s => s.id));
     studentAssessments.forEach(sa => {
+      if (!allowedStudentIds.has(sa.studentId)) return;
       const assessment = filteredData.assessments.find(a => a.id === sa.assessmentId);
-      if (!assessment || !assessment.poMapping) return;
+      if (!assessment) return;
+      if (!coPoByCourse[assessment.courseId]) return; // only aggregate assessments for courses that have CO-PO mappings
 
-      const studentPercentage = (sa.marksObtained / sa.maxMarks) * 100;
-      
-      assessment.poMapping.forEach(po => {
-        if (poPerformanceMap[po.poCode]) {
-          const poScore = (studentPercentage * po.weightage) / 100;
-          poPerformanceMap[po.poCode].totalScore += poScore;
-          poPerformanceMap[po.poCode].count += 1;
-        }
+      const studentPercentage = sa.maxMarks > 0 ? (sa.marksObtained / sa.maxMarks) * 100 : 0;
+
+      // Derive via course-specific CO->PO mapping
+      if (assessment.coMapping && assessment.coMapping.length > 0) {
+        const courseMappings = coPoByCourse[assessment.courseId].filter(m => m.percentage > 0);
+        const coToPo = courseMappings.reduce((acc, m) => {
+          (acc[m.coCode] = acc[m.coCode] || []).push({ poCode: m.poCode, percentage: m.percentage });
+          return acc;
+        }, {} as Record<string, { poCode: string; percentage: number }[]>);
+
+        assessment.coMapping.forEach(co => {
+          const mappings = (coToPo[co.coCode] || []).filter(mp => mp.percentage > 0);
+          mappings.forEach(mp => {
+            const key = mp.poCode;
+            const entry = poPerformanceMap[key] || (poPerformanceMap[key] = { name: key, totalScore: 0, contributionCount: 0, studentIds: new Set<string>(), weightSum: 0 });
+            const course = filteredData.courses.find(c => c.id === assessment.courseId) || courses.find(c => c.id === assessment.courseId);
+            const courseCredit = Math.max(1, course?.credits || 1);
+            const poScore = studentPercentage * (co.weightage / 100) * (mp.percentage / 100) * courseCredit;
+            entry.totalScore += poScore;
+            entry.contributionCount += 1;
+            entry.studentIds.add(sa.studentId);
+            entry.weightSum += courseCredit;
+          });
+        });
+      }
+    });
+
+    const entries = Object.values(poPerformanceMap).map(po => ({
+      name: po.name,
+      // Raw average score for this PO on a 0-100 scale (credit-weighted)
+      rawValue: po.weightSum > 0 ? po.totalScore / po.weightSum : 0,
+      count: po.studentIds.size,
+      averageWeight: 0
+    }));
+
+    // Assign equal average weightage per PO within the current scope (dept/school/overall)
+    const n = Math.max(1, entries.length);
+    const equalWeight = 100 / n;
+
+    // Convert to weighted achievement (contribution towards overall out of weight, e.g., 20%)
+    return entries.map(e => ({
+      name: e.name,
+      // Weighted contribution in percent points: (raw% / 100) * weight%
+      value: (e.rawValue * equalWeight) / 100,
+      rawValue: e.rawValue,
+      count: e.count,
+      averageWeight: equalWeight
+    }));
+  };
+
+  // PO coverage as percentage of unique students in current scope (non-exclusive across POs)
+  const getPOCoverageData = () => {
+    const poStudentSets: Record<string, Set<string>> = {};
+
+    // Build CO->PO mappings per course (scoped)
+    const filteredCourseIds = new Set(filteredData.courses.map(c => c.id));
+    const coPoByCourse: Record<string, { coCode: string; poCode: string; percentage: number }[]> = {};
+    coPoMappings.forEach(m => {
+      if (!m.courseId) return;
+      if (!filteredCourseIds.has(m.courseId)) return;
+      if (m.percentage <= 0) return;
+      if (!coPoByCourse[m.courseId]) coPoByCourse[m.courseId] = [];
+      coPoByCourse[m.courseId].push({ coCode: m.coCode, poCode: m.poCode, percentage: m.percentage });
+    });
+
+    // In the dataset, the same 30 students are replicated per semester with different ids.
+    // Use rollNumber to deduplicate for coverage calculations.
+    const allowedStudentIds = new Set(filteredData.students.map(s => s.id));
+    const studentIdToRoll: Record<string, string> = {};
+    filteredData.students.forEach(s => { studentIdToRoll[s.id] = s.rollNumber; });
+    const uniqueRollNumbers = new Set(filteredData.students.map(s => s.rollNumber));
+    const totalUniqueStudents = uniqueRollNumbers.size || 1;
+
+    studentAssessments.forEach(sa => {
+      if (!allowedStudentIds.has(sa.studentId)) return;
+      const assessment = filteredData.assessments.find(a => a.id === sa.assessmentId);
+      if (!assessment) return;
+      if (!coPoByCourse[assessment.courseId]) return;
+      if (!assessment.coMapping || assessment.coMapping.length === 0) return;
+
+      const courseMappings = coPoByCourse[assessment.courseId].filter(m => m.percentage > 0);
+      const coToPo = courseMappings.reduce((acc, m) => {
+        (acc[m.coCode] = acc[m.coCode] || []).push({ poCode: m.poCode, percentage: m.percentage });
+        return acc;
+      }, {} as Record<string, { poCode: string; percentage: number }[]>);
+
+      assessment.coMapping.forEach(co => {
+        const mappings = (coToPo[co.coCode] || []).filter(mp => mp.percentage > 0);
+        mappings.forEach(mp => {
+          const set = poStudentSets[mp.poCode] || (poStudentSets[mp.poCode] = new Set<string>());
+          const roll = studentIdToRoll[sa.studentId];
+          if (roll) set.add(roll);
+        });
       });
     });
 
-    return Object.values(poPerformanceMap).map(po => ({
-      name: po.name,
-      value: po.count > 0 ? po.totalScore / po.count : 0,
-      count: po.count,
-      averageWeight: po.totalWeight / filteredData.assessments.filter(a => a.poMapping?.some(p => p.poCode === po.name)).length || 0
+    return Object.entries(poStudentSets).map(([poCode, set]) => ({
+      name: poCode,
+      uniqueCount: set.size,
+      percent: (set.size / totalUniqueStudents) * 100,
+      totalStudents: totalUniqueStudents
     }));
+  };
+
+  // Overall PO average for current selection (department/school/overall based on filters)
+  const getPOOverallAverage = () => {
+    const data = getPODistributionData();
+    if (data.length === 0) return 0;
+    // Sum of weighted contributions already expressed in percent points
+    const total = data.reduce((sum, d) => sum + d.value, 0);
+    return total;
   };
 
   const getGADistributionData = () => {
@@ -472,7 +600,8 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
   };
 
   const getAssessmentTypeData = () => {
-    const typeStats = assessments.reduce((acc, assessment) => {
+    // Use filtered assessments so the pie reflects current filters
+    const typeStats = filteredData.assessments.reduce((acc, assessment) => {
       acc[assessment.type] = (acc[assessment.type] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
@@ -561,11 +690,11 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
       ...prev,
       [key]: value,
       // Reset dependent filters
-      ...(key === 'school' && { department: '', batch: '', section: '', faculty: '', student: '' }),
-      ...(key === 'department' && { batch: '', section: '', faculty: '', student: '' }),
-      ...(key === 'batch' && { section: '', faculty: '', student: '', semesters: [] }),
+      ...(key === 'school' && { department: '', batch: '', section: '', faculty: '', course: '', student: '' }),
+      ...(key === 'department' && { batch: '', section: '', faculty: '', course: '', student: '' }),
+      ...(key === 'batch' && { section: '', faculty: '', course: '', student: '', semesters: [] }),
       ...(key === 'section' && { student: '' }),
-      ...(key === 'faculty' && { student: '' })
+      ...(key === 'faculty' && { course: '', student: '' })
     }));
   };
 
@@ -596,6 +725,8 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
       coCode: coPoFormData.coCode,
       poCode: coPoFormData.poCode,
       percentage: coPoFormData.percentage,
+      // Scope to selected course if any
+      courseId: filters.course || undefined,
       createdAt: editingMapping?.createdAt || new Date()
     };
 
@@ -618,12 +749,35 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
     setCoPoMappings(updatedMappings);
   };
 
+  const upsertCoPoMapping = (coCode: string, poCode: string, percentage: number) => {
+    const scopeCourseId = filters.course || undefined;
+    const existing = coPoMappings.find(m => m.coCode === coCode && m.poCode === poCode && m.courseId === scopeCourseId);
+    if (existing) {
+      const updated: COPOMapping = { ...existing, percentage };
+      LocalStorageService.updateCOPOMapping(existing.id, updated);
+    } else {
+      const newMapping: COPOMapping = {
+        id: Date.now().toString(),
+        coCode,
+        poCode,
+        percentage,
+        courseId: scopeCourseId,
+        createdAt: new Date()
+      };
+      LocalStorageService.addCOPOMapping(newMapping);
+    }
+    setCoPoMappings(LocalStorageService.getCOPOMappings());
+  };
+
   // Get available COs and POs from assessments
   const getAvailableCOs = () => {
     const coSet = new Set<string>();
     filteredData.assessments.forEach(assessment => {
       assessment.coMapping?.forEach(co => coSet.add(co.coCode));
     });
+    // Include any COs present in scoped CO-PO mappings for selected course
+    const scopedMappings = coPoMappings.filter(m => !filters.course || m.courseId === filters.course);
+    scopedMappings.forEach(m => coSet.add(m.coCode));
     return Array.from(coSet).sort();
   };
 
@@ -632,6 +786,9 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
     filteredData.assessments.forEach(assessment => {
       assessment.poMapping?.forEach(po => poSet.add(po.poCode));
     });
+    // Include POs from scoped CO-PO mappings
+    const scopedMappings = coPoMappings.filter(m => !filters.course || m.courseId === filters.course);
+    scopedMappings.forEach(m => poSet.add(m.poCode));
     return Array.from(poSet).sort();
   };
 
@@ -640,10 +797,14 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
     const coList = getAvailableCOs();
     const poList = getAvailablePOs();
     
+    // Prefer course-scoped mappings if present; otherwise fall back to global
+    const scopedMappings = coPoMappings.filter(m => (filters.course ? m.courseId === filters.course : !m.courseId));
+
     return coList.map(coCode => {
       const coData: any = { coCode };
       poList.forEach(poCode => {
-        const mapping = coPoMappings.find(m => m.coCode === coCode && m.poCode === poCode);
+        const mapping = scopedMappings.find(m => m.coCode === coCode && m.poCode === poCode) ||
+          coPoMappings.find(m => !filters.course && !m.courseId && m.coCode === coCode && m.poCode === poCode) || null;
         coData[poCode] = mapping ? mapping.percentage : 0;
       });
       return coData;
@@ -806,6 +967,9 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">GA Performance Distribution</h3>
+              {!hasMarksInCurrentScope() ? (
+                <div className="p-8 text-center text-gray-500">No marks awarded in the current selection. GA charts will appear once assessments are evaluated.</div>
+              ) : (
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={getGADistributionData()}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -818,6 +982,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
                   <Bar dataKey="value" fill="#8884D8" name="Average Achievement %" />
                 </BarChart>
               </ResponsiveContainer>
+              )}
             </div>
             
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -850,6 +1015,9 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">CO Performance Distribution</h3>
+              {!hasMarksInCurrentScope() ? (
+                <div className="p-8 text-center text-gray-500">No marks awarded in the current selection. CO charts will appear once assessments are evaluated.</div>
+              ) : (
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={getCODistributionData()}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -865,6 +1033,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
                   <Bar dataKey="value" fill="#00C49F" name="Average Performance Score" />
                 </BarChart>
               </ResponsiveContainer>
+              )}
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -901,46 +1070,54 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
         return (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">PO Performance Distribution</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={getPODistributionData()}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <Tooltip 
-                    formatter={(value: number, name: string) => [
-                      `${value.toFixed(2)}%`, 
-                      'Average Performance Score'
-                    ]}
-                  />
-                  <Legend />
-                  <Bar dataKey="value" fill="#FFBB28" name="Average Performance Score" />
-                </BarChart>
-              </ResponsiveContainer>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">PO Performance Distribution</h3>
+              {!hasMarksInCurrentScope() ? (
+                <div className="p-8 text-center text-gray-500">No marks awarded in the current selection. PO charts will appear once assessments are evaluated.</div>
+              ) : (
+                <>
+                  <div className="text-sm text-gray-600 mb-2">Overall weighted achievement (current selection): <span className="font-semibold text-gray-900">{getPOOverallAverage().toFixed(2)}%</span></div>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={getPODistributionData()}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis tickFormatter={(v: number) => `${v}%`} />
+                      <Tooltip 
+                        formatter={(value: number) => [
+                          `${Number(value).toFixed(2)}%`, 
+                          'Weighted Achievement'
+                        ]}
+                      />
+                      <Legend />
+                      <Bar dataKey="value" fill="#FFBB28" name="Weighted Achievement" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </>
+              )}
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">PO Student Coverage</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">PO Student Coverage</h3>
+              <div className="text-sm text-gray-600 mb-2">Coverage is non-exclusive across POs. Total unique students in scope: {getPOCoverageData().length > 0 ? getPOCoverageData()[0].totalStudents : 0}.</div>
               <ResponsiveContainer width="100%" height={300}>
                 <PieChart>
                   <Pie
-                    data={getPODistributionData()}
+                    data={getPOCoverageData()}
                     cx="50%"
                     cy="50%"
                     labelLine={false}
-                    label={({ name, count }) => `${name}: ${count} students`}
+                    label={({ name, percent, uniqueCount }) => `${name}: ${percent.toFixed(1)}% (${uniqueCount})`}
                     outerRadius={80}
                     fill="#8884d8"
-                    dataKey="count"
+                    dataKey="percent"
                   >
-                    {getPODistributionData().map((entry, index) => (
+                    {getPOCoverageData().map((entry, index) => (
                       <Cell key={`cell-po-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
                   <Tooltip 
-                    formatter={(value: number, name: string) => [
-                      `${value} students`, 
-                      'Student Count'
+                    formatter={(value: number, name: string, p: any) => [
+                      `${(value as number).toFixed(1)}% (${p && p.payload ? p.payload.uniqueCount : 0} students)`, 
+                      'Coverage'
                     ]}
                   />
                 </PieChart>
@@ -952,6 +1129,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
       case 'co-po':
         return (
           <div className="space-y-6">
+            {filters.course && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">CO-PO Mapping Matrix</h3>
@@ -973,35 +1151,56 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
                         {getAvailablePOs().map(po => (
                           <th key={po} className="border border-gray-300 px-4 py-2 text-center font-medium text-gray-700">{po}</th>
                         ))}
-                        <th className="border border-gray-300 px-4 py-2 text-center font-medium text-gray-700">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {getCoPoMappingData().map((row, index) => (
                         <tr key={row.coCode}>
                           <td className="border border-gray-300 px-4 py-2 font-medium text-gray-900">{row.coCode}</td>
-                          {getAvailablePOs().map(po => (
-                            <td key={po} className="border border-gray-300 px-4 py-2 text-center">
-                              <span className={`px-2 py-1 rounded text-sm ${
-                                row[po] > 0 ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'
-                              }`}>
-                                {row[po]}%
-                              </span>
-                            </td>
-                          ))}
-                          <td className="border border-gray-300 px-4 py-2 text-center">
-                            <div className="flex gap-2 justify-center">
-                              {coPoMappings.filter(m => m.coCode === row.coCode).map(mapping => (
-                                <button
-                                  key={mapping.id}
-                                  onClick={() => handleEditCoPoMapping(mapping)}
-                                  className="text-blue-600 hover:text-blue-800 text-sm"
-                                >
-                                  Edit
-                                </button>
-                              ))}
-                            </div>
-                          </td>
+                          {getAvailablePOs().map(po => {
+                            const isEditing = inlineEditCell && inlineEditCell.coCode === row.coCode && inlineEditCell.poCode === po;
+                            const cellValue = row[po] || 0;
+                            return (
+                              <td key={po} className="border border-gray-300 px-4 py-2 text-center">
+                                {isEditing ? (
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    value={inlineEditValue}
+                                    onChange={(e) => setInlineEditValue(e.target.value)}
+                                    onBlur={() => {
+                                      const v = Math.max(0, Math.min(100, parseInt(inlineEditValue || '0', 10)));
+                                      upsertCoPoMapping(row.coCode, po, v);
+                                      setInlineEditCell(null);
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        const v = Math.max(0, Math.min(100, parseInt(inlineEditValue || '0', 10)));
+                                        upsertCoPoMapping(row.coCode, po, v);
+                                        setInlineEditCell(null);
+                                      } else if (e.key === 'Escape') {
+                                        setInlineEditCell(null);
+                                      }
+                                    }}
+                                    className="w-20 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    autoFocus
+                                  />
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      setInlineEditCell({ coCode: row.coCode, poCode: po });
+                                      setInlineEditValue(String(cellValue));
+                                    }}
+                                    className={`px-2 py-1 rounded text-sm w-full ${cellValue > 0 ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'}`}
+                                    title="Click to edit"
+                                  >
+                                    {cellValue}%
+                                  </button>
+                                )}
+                              </td>
+                            );
+                          })}
                         </tr>
                       ))}
                     </tbody>
@@ -1014,31 +1213,37 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
                 </div>
               )}
             </div>
+            )}
 
-            {coPoMappings.length > 0 && (
+            {(function() {
+              // Show charts if at least one relevant CO-PO mapping with non-zero percentage exists for any filtered course
+              const filteredCourseIds = new Set(filteredData.courses.map(c => c.id));
+              const hasRelevantCoPo = coPoMappings.some(m => m.courseId && filteredCourseIds.has(m.courseId) && m.percentage > 0);
+              return hasRelevantCoPo && hasMarksInCurrentScope();
+            })() && (
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">CO-PO Mapping Summary</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {coPoMappings.map(mapping => (
-                    <div key={mapping.id} className="border border-gray-200 rounded-lg p-4">
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <span className="font-medium text-gray-900">{mapping.coCode}</span>
-                          <span className="text-gray-500 mx-2">→</span>
-                          <span className="font-medium text-gray-900">{mapping.poCode}</span>
-                        </div>
-                        <button
-                          onClick={() => handleDeleteCoPoMapping(mapping.id)}
-                          className="text-red-600 hover:text-red-800 text-sm"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                      <div className="text-sm text-gray-600">
-                        <span className="font-medium">{mapping.percentage}%</span> mapping
-                      </div>
-                    </div>
-                  ))}
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">PO Achievement (Current Selection)</h3>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={getPODistributionData()}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis tickFormatter={(v: number) => `${v}%`} />
+                      <Tooltip formatter={(value: number) => [`${Number(value).toFixed(2)}%`, 'Weighted Achievement']}/>
+                      <Legend />
+                      <Bar dataKey="value" fill="#2563EB" name="Weighted Achievement" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <PieChart>
+                      <Pie data={getPODistributionData()} dataKey="count" cx="50%" cy="50%" outerRadius={90} label={({ name, count }) => `${name}: ${count}` }>
+                        {getPODistributionData().map((entry, index) => (
+                          <Cell key={`po-ach-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value: number) => [`${value} students`, 'Students']}/>
+                    </PieChart>
+                  </ResponsiveContainer>
                 </div>
               </div>
             )}
@@ -1231,16 +1436,16 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
         return (
           <div className="space-y-6">
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">PO Weightage & Coverage (Current Selection)</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">PO Weighted Achievement & Coverage (Current Selection)</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <ResponsiveContainer width="100%" height={280}>
                   <BarChart data={getPODistributionData()}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="name" />
-                    <YAxis />
-                    <Tooltip />
+                    <YAxis tickFormatter={(v: number) => `${v}%`} />
+                    <Tooltip formatter={(value: number) => [`${Number(value).toFixed(2)}%`, 'Weighted Achievement']} />
                     <Legend />
-                    <Bar dataKey="value" fill="#FFBB28" name="Avg Weightage %" />
+                    <Bar dataKey="value" fill="#FFBB28" name="Weighted Achievement %" />
                   </BarChart>
                 </ResponsiveContainer>
                 <ResponsiveContainer width="100%" height={280}>
@@ -1344,7 +1549,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
           <h3 className="text-lg font-semibold text-gray-900">Filters</h3>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-8 gap-4">
           {/* School Filter */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">School *</label>
@@ -1424,6 +1629,22 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
             </select>
           </div>
 
+          {/* Course Filter */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Course</label>
+            <select
+              value={filters.course}
+              onChange={(e) => updateFilter('course', e.target.value)}
+              disabled={!filters.school}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+            >
+              <option value="">All Courses</option>
+              {filteredData.courses.map(c => (
+                <option key={c.id} value={c.id}>{c.code ? `${c.code} — ${c.name}` : c.name}</option>
+              ))}
+            </select>
+          </div>
+
           {/* Semesters (Overview) - Dropdown based on batch length */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Semesters (Overview)</label>
@@ -1475,7 +1696,7 @@ export function Reports({ students, assessments, studentAssessments, courses, fa
             <span className="text-sm font-medium text-blue-900">Current Filter Results:</span>
           </div>
           <div className="text-sm text-blue-800">
-            <span className="font-medium">{filteredData.students.length}</span> students, 
+            <span className="font-medium">{new Set(filteredData.students.map(s => s.rollNumber)).size}</span> students, 
             <span className="font-medium"> {filteredData.courses.length}</span> courses, 
             <span className="font-medium"> {filteredData.faculty.length}</span> faculty members
             {filters.school && (

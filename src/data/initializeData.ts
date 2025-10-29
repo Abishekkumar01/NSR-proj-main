@@ -181,6 +181,137 @@ export const courseData: Course[] = [
       { poCode: 'PO5', poName: 'Modern Tool Usage' }
     ]
   },
+  // --- Comprehensive 2022-26 batch coverage (one core course each semester) ---
+  {
+    id: 'course-011',
+    code: 'CSE101',
+    name: 'Programming Fundamentals',
+    department: 'Computer Science & Engineering',
+    school: 'ASET',
+    batch: '2022-26',
+    semester: 1,
+    credits: 4,
+    facultyId: 'faculty-001',
+    facultyName: 'Dr. Rajesh Kumar',
+    coOptions: [
+      { coCode: 'CO1', coName: 'Understand basics of programming and syntax' },
+      { coCode: 'CO2', coName: 'Apply control structures and functions' },
+      { coCode: 'CO3', coName: 'Manipulate arrays and strings' },
+      { coCode: 'CO4', coName: 'Design modular programs' },
+      { coCode: 'CO5', coName: 'Debug and test programs effectively' }
+    ],
+    poOptions: [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ]
+  },
+  {
+    id: 'course-012',
+    code: 'CSE151',
+    name: 'Discrete Mathematics',
+    department: 'Computer Science & Engineering',
+    school: 'ASET',
+    batch: '2022-26',
+    semester: 2,
+    credits: 4,
+    facultyId: 'faculty-002',
+    facultyName: 'Prof. Priya Sharma',
+    coOptions: [
+      { coCode: 'CO1', coName: 'Apply logic and proofs' },
+      { coCode: 'CO2', coName: 'Use sets, relations, functions' },
+      { coCode: 'CO3', coName: 'Analyze combinatorics and counting' },
+      { coCode: 'CO4', coName: 'Work with graphs and trees' },
+      { coCode: 'CO5', coName: 'Model problems discretely' }
+    ],
+    poOptions: [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ]
+  },
+  {
+    id: 'course-013',
+    code: 'CSE201',
+    name: 'Data Structures and Algorithms',
+    department: 'Computer Science & Engineering',
+    school: 'ASET',
+    batch: '2022-26',
+    semester: 3,
+    credits: 4,
+    facultyId: 'faculty-001',
+    facultyName: 'Dr. Rajesh Kumar',
+    coOptions: [
+      { coCode: 'CO1', coName: 'Analyze time and space complexity of algorithms' },
+      { coCode: 'CO2', coName: 'Implement various data structures using programming languages' },
+      { coCode: 'CO3', coName: 'Design efficient algorithms for problem solving' },
+      { coCode: 'CO4', coName: 'Apply appropriate data structures for specific applications' },
+      { coCode: 'CO5', coName: 'Evaluate and compare different algorithmic approaches' }
+    ],
+    poOptions: [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ]
+  },
+  {
+    id: 'course-014',
+    code: 'CSE401',
+    name: 'Database Management Systems',
+    department: 'Computer Science & Engineering',
+    school: 'ASET',
+    batch: '2022-26',
+    semester: 4,
+    credits: 4,
+    facultyId: 'faculty-001',
+    facultyName: 'Dr. Rajesh Kumar',
+    coOptions: [
+      { coCode: 'CO1', coName: 'Design and implement relational database schemas' },
+      { coCode: 'CO2', coName: 'Write complex SQL queries for data manipulation' },
+      { coCode: 'CO3', coName: 'Apply normalization techniques to eliminate redundancy' },
+      { coCode: 'CO4', coName: 'Implement database transactions and concurrency control' },
+      { coCode: 'CO5', coName: 'Design and optimize database performance' }
+    ],
+    poOptions: [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ]
+  },
+  {
+    id: 'course-015',
+    code: 'CSE301',
+    name: 'Operating Systems',
+    department: 'Computer Science & Engineering',
+    school: 'ASET',
+    batch: '2022-26',
+    semester: 5,
+    credits: 4,
+    facultyId: 'faculty-001',
+    facultyName: 'Dr. Rajesh Kumar',
+    coOptions: [
+      { coCode: 'CO1', coName: 'Understand operating system concepts and components' },
+      { coCode: 'CO2', coName: 'Analyze process management and scheduling algorithms' },
+      { coCode: 'CO3', coName: 'Implement memory management techniques' },
+      { coCode: 'CO4', coName: 'Design file system structures and operations' },
+      { coCode: 'CO5', coName: 'Apply synchronization mechanisms in concurrent programming' }
+    ],
+    poOptions: [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ]
+  },
   {
     id: 'course-004',
     code: 'CSE501',
@@ -198,6 +329,58 @@ export const courseData: Course[] = [
       { coCode: 'CO3', coName: 'Analyze network performance and security issues' },
       { coCode: 'CO4', coName: 'Design network topologies and configurations' },
       { coCode: 'CO5', coName: 'Apply network troubleshooting techniques' }
+    ],
+    poOptions: [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ]
+  },
+  {
+    id: 'course-016',
+    code: 'CSE601',
+    name: 'Software Engineering',
+    department: 'Computer Science & Engineering',
+    school: 'ASET',
+    batch: '2022-26',
+    semester: 7,
+    credits: 4,
+    facultyId: 'faculty-002',
+    facultyName: 'Prof. Priya Sharma',
+    coOptions: [
+      { coCode: 'CO1', coName: 'Apply software development lifecycle methodologies' },
+      { coCode: 'CO2', coName: 'Design software architecture and components' },
+      { coCode: 'CO3', coName: 'Implement software testing and quality assurance' },
+      { coCode: 'CO4', coName: 'Manage software projects and teams' },
+      { coCode: 'CO5', coName: 'Apply software maintenance and evolution practices' }
+    ],
+    poOptions: [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ]
+  },
+  {
+    id: 'course-017',
+    code: 'CSE1101',
+    name: 'Artificial Intelligence',
+    department: 'Computer Science & Engineering',
+    school: 'ASET',
+    batch: '2022-26',
+    semester: 8,
+    credits: 4,
+    facultyId: 'faculty-004',
+    facultyName: 'Dr. Neha Gupta',
+    coOptions: [
+      { coCode: 'CO1', coName: 'Understand AI algorithms and problem-solving techniques' },
+      { coCode: 'CO2', coName: 'Implement search algorithms and optimization methods' },
+      { coCode: 'CO3', coName: 'Apply knowledge representation and reasoning systems' },
+      { coCode: 'CO4', coName: 'Design intelligent agents and expert systems' },
+      { coCode: 'CO5', coName: 'Evaluate AI system performance and limitations' }
     ],
     poOptions: [
       { poCode: 'PO1', poName: 'Engineering Knowledge' },
@@ -363,6 +546,322 @@ export const courseData: Course[] = [
       { poCode: 'PO5', poName: 'Modern Tool Usage' }
     ]
   }
+  ,
+  // ========= Added curriculum-aligned subjects for batch 2022-26 by semester =========
+  // Semester 1
+  {
+    id: 'course-100',
+    code: 'MTH101',
+    name: 'Applied Mathematics – I',
+    department: 'Computer Science & Engineering',
+    school: 'ASET',
+    batch: '2022-26',
+    semester: 1,
+    credits: 4,
+    facultyId: 'faculty-004',
+    facultyName: 'Dr. Neha Gupta',
+    coOptions: [
+      { coCode: 'CO1', coName: 'Apply differential calculus to problems' },
+      { coCode: 'CO2', coName: 'Use matrices and determinants' },
+      { coCode: 'CO3', coName: 'Analyze sequences and series' },
+      { coCode: 'CO4', coName: 'Solve first order ODEs' },
+      { coCode: 'CO5', coName: 'Model physical systems' }
+    ],
+    poOptions: [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ]
+  },
+  {
+    id: 'course-101',
+    code: 'PHY101',
+    name: 'Applied Physics – I (Fields & Waves)',
+    department: 'Computer Science & Engineering',
+    school: 'ASET',
+    batch: '2022-26',
+    semester: 1,
+    credits: 3,
+    facultyId: 'faculty-003',
+    facultyName: 'Dr. Amit Singh',
+    coOptions: [
+      { coCode: 'CO1', coName: 'Explain EM waves and fields' },
+      { coCode: 'CO2', coName: 'Apply optics to instruments' },
+      { coCode: 'CO3', coName: 'Relate material properties to fields' },
+      { coCode: 'CO4', coName: 'Carry out basic physics experiments' },
+      { coCode: 'CO5', coName: 'Correlate physics with engineering' }
+    ],
+    poOptions: [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ]
+  },
+  {
+    id: 'course-102',
+    code: 'MEC101',
+    name: 'Engineering Mechanics',
+    department: 'Computer Science & Engineering',
+    school: 'ASET',
+    batch: '2022-26',
+    semester: 1,
+    credits: 3,
+    facultyId: 'faculty-002',
+    facultyName: 'Prof. Priya Sharma',
+    coOptions: [
+      { coCode: 'CO1', coName: 'Resolve forces and moments' },
+      { coCode: 'CO2', coName: 'Analyze equilibrium and friction' },
+      { coCode: 'CO3', coName: 'Apply kinematics/kinetics' },
+      { coCode: 'CO4', coName: 'Evaluate loaded structures' },
+      { coCode: 'CO5', coName: 'Use mechanics in design' }
+    ],
+    poOptions: [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ]
+  },
+  {
+    id: 'course-103',
+    code: 'CSE103',
+    name: 'Introduction to Computers & Programming in C',
+    department: 'Computer Science & Engineering',
+    school: 'ASET',
+    batch: '2022-26',
+    semester: 1,
+    credits: 4,
+    facultyId: 'faculty-001',
+    facultyName: 'Dr. Rajesh Kumar',
+    coOptions: [
+      { coCode: 'CO1', coName: 'Use C syntax, data types and operators' },
+      { coCode: 'CO2', coName: 'Apply control structures and functions' },
+      { coCode: 'CO3', coName: 'Manipulate arrays, pointers, strings' },
+      { coCode: 'CO4', coName: 'Use files and structures' },
+      { coCode: 'CO5', coName: 'Develop modular programs' }
+    ],
+    poOptions: [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ]
+  },
+  {
+    id: 'course-104',
+    code: 'EEE101',
+    name: 'Basic Electrical Engineering',
+    department: 'Computer Science & Engineering',
+    school: 'ASET',
+    batch: '2022-26',
+    semester: 1,
+    credits: 3,
+    facultyId: 'faculty-004',
+    facultyName: 'Dr. Neha Gupta',
+    coOptions: [
+      { coCode: 'CO1', coName: 'Explain DC/AC circuit fundamentals' },
+      { coCode: 'CO2', coName: 'Analyze single phase systems' },
+      { coCode: 'CO3', coName: 'Understand machines basics' },
+      { coCode: 'CO4', coName: 'Perform measurements' },
+      { coCode: 'CO5', coName: 'Apply safety and standards' }
+    ],
+    poOptions: [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ]
+  },
+  {
+    id: 'course-105',
+    code: 'PHY111',
+    name: 'Applied Physics Lab',
+    department: 'Computer Science & Engineering',
+    school: 'ASET',
+    batch: '2022-26',
+    semester: 1,
+    credits: 1,
+    facultyId: 'faculty-003',
+    facultyName: 'Dr. Amit Singh',
+    coOptions: [
+      { coCode: 'CO1', coName: 'Conduct optics and EM experiments' },
+      { coCode: 'CO2', coName: 'Interpret lab data' },
+      { coCode: 'CO3', coName: 'Prepare lab reports' },
+      { coCode: 'CO4', coName: 'Follow lab safety' },
+      { coCode: 'CO5', coName: 'Relate theory and practice' }
+    ],
+    poOptions: [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ]
+  },
+  {
+    id: 'course-106',
+    code: 'ENG111',
+    name: 'Engineering Graphics / Workshop Practice',
+    department: 'Computer Science & Engineering',
+    school: 'ASET',
+    batch: '2022-26',
+    semester: 1,
+    credits: 2,
+    facultyId: 'faculty-002',
+    facultyName: 'Prof. Priya Sharma',
+    coOptions: [
+      { coCode: 'CO1', coName: 'Create engineering drawings' },
+      { coCode: 'CO2', coName: 'Use CAD tools' },
+      { coCode: 'CO3', coName: 'Operate workshop tools safely' },
+      { coCode: 'CO4', coName: 'Fabricate basic joints' },
+      { coCode: 'CO5', coName: 'Interpret blueprints' }
+    ],
+    poOptions: [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ]
+  },
+  {
+    id: 'course-107',
+    code: 'HUM101',
+    name: 'Behavioural Science – I (Human Values & Ethics)',
+    department: 'Computer Science & Engineering',
+    school: 'ASET',
+    batch: '2022-26',
+    semester: 1,
+    credits: 2,
+    facultyId: 'faculty-004',
+    facultyName: 'Dr. Neha Gupta',
+    coOptions: [
+      { coCode: 'CO1', coName: 'Demonstrate ethical decision making' },
+      { coCode: 'CO2', coName: 'Practice professional conduct' },
+      { coCode: 'CO3', coName: 'Work effectively in teams' },
+      { coCode: 'CO4', coName: 'Communicate responsibly' },
+      { coCode: 'CO5', coName: 'Reflect on personal values' }
+    ],
+    poOptions: [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ]
+  },
+  // Semester 2 (representative selection)
+  {
+    id: 'course-108',
+    code: 'MTH151',
+    name: 'Applied Mathematics – II',
+    department: 'Computer Science & Engineering',
+    school: 'ASET',
+    batch: '2022-26',
+    semester: 2,
+    credits: 4,
+    facultyId: 'faculty-004',
+    facultyName: 'Dr. Neha Gupta',
+    coOptions: [
+      { coCode: 'CO1', coName: 'Solve higher order ODEs' },
+      { coCode: 'CO2', coName: 'Use Laplace/Fourier transforms' },
+      { coCode: 'CO3', coName: 'Apply vector calculus' },
+      { coCode: 'CO4', coName: 'Model engineering systems' },
+      { coCode: 'CO5', coName: 'Analyze probability basics' }
+    ],
+    poOptions: [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ]
+  },
+  {
+    id: 'course-109',
+    code: 'PHY151',
+    name: 'Applied Physics – II (Modern Physics)',
+    department: 'Computer Science & Engineering',
+    school: 'ASET',
+    batch: '2022-26',
+    semester: 2,
+    credits: 3,
+    facultyId: 'faculty-003',
+    facultyName: 'Dr. Amit Singh',
+    coOptions: [
+      { coCode: 'CO1', coName: 'Explain quantum/semiconductor basics' },
+      { coCode: 'CO2', coName: 'Understand lasers and fiber optics' },
+      { coCode: 'CO3', coName: 'Apply modern physics to devices' },
+      { coCode: 'CO4', coName: 'Conduct experiments safely' },
+      { coCode: 'CO5', coName: 'Relate phenomena to engineering' }
+    ],
+    poOptions: [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ]
+  },
+  {
+    id: 'course-110',
+    code: 'CSE151',
+    name: 'Data Structures using C',
+    department: 'Computer Science & Engineering',
+    school: 'ASET',
+    batch: '2022-26',
+    semester: 2,
+    credits: 4,
+    facultyId: 'faculty-001',
+    facultyName: 'Dr. Rajesh Kumar',
+    coOptions: [
+      { coCode: 'CO1', coName: 'Implement linear data structures' },
+      { coCode: 'CO2', coName: 'Use trees and graphs' },
+      { coCode: 'CO3', coName: 'Analyze complexity' },
+      { coCode: 'CO4', coName: 'Use sorting/searching' },
+      { coCode: 'CO5', coName: 'Choose appropriate structures' }
+    ],
+    poOptions: [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ]
+  },
+  {
+    id: 'course-111',
+    code: 'CHM151',
+    name: 'Applied Chemistry',
+    department: 'Computer Science & Engineering',
+    school: 'ASET',
+    batch: '2022-26',
+    semester: 2,
+    credits: 3,
+    facultyId: 'faculty-002',
+    facultyName: 'Prof. Priya Sharma',
+    coOptions: [
+      { coCode: 'CO1', coName: 'Explain bonding and structure' },
+      { coCode: 'CO2', coName: 'Apply thermodynamics' },
+      { coCode: 'CO3', coName: 'Understand materials/polymers' },
+      { coCode: 'CO4', coName: 'Use analytical techniques' },
+      { coCode: 'CO5', coName: 'Relate chemistry to engineering' }
+    ],
+    poOptions: [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ]
+  }
 ];
 
 // Generate student data for all batches
@@ -379,35 +878,40 @@ export function generateStudentData(): Student[] {
     'Zara Khan', 'Abhishek Singh', 'Bhumika Patel', 'Chetan Kumar', 'Divya Sharma'
   ];
 
-  let studentId = 1;
-  let rollNumber = 1;
-
+  // Generate a consistent set of 30 students per batch and replicate across semesters 1..8
+  let globalId = 1;
   batches.forEach((batch, batchIndex) => {
-    sections.forEach((section, sectionIndex) => {
-      // Generate 15 students per section
-      for (let i = 0; i < 15; i++) {
-        const nameIndex = (studentId - 1) % names.length;
-        const semester = Math.min(8, (batchIndex * 2) + (i % 2) + 1);
-        
+    const baseStudents: { name: string; baseRoll: string; section: string }[] = [];
+    // Create 15 per section = 30 base students
+    sections.forEach((section) => {
+      for (let i = 1; i <= 15; i++) {
+        const nameIndex = (globalId - 1) % names.length;
+        const baseRoll = `CSE${batch.substring(0, 4)}${section}${i.toString().padStart(3, '0')}`;
+        baseStudents.push({ name: names[nameIndex], baseRoll, section });
+        globalId++;
+      }
+    });
+
+    // Replicate the same 30 students to all 8 semesters of the batch
+    for (let semester = 1; semester <= 8; semester++) {
+      baseStudents.forEach((base, idx) => {
+        const idSuffix = `${batch.replace(/[^0-9]/g, '')}-${semester}-${idx + 1}`;
         students.push({
-          id: `student-${studentId.toString().padStart(3, '0')}`,
-          rollNumber: `CSE${batch.substring(0, 4)}${section}${rollNumber.toString().padStart(3, '0')}`,
-          name: names[nameIndex],
-          email: `${names[nameIndex].toLowerCase().replace(' ', '.')}@amity.edu`,
+          id: `student-${idSuffix}`,
+          // Keep roll stable with optional semester suffix to avoid collisions in some views
+          rollNumber: `${base.baseRoll}`,
+          name: base.name,
+          email: `${base.name.toLowerCase().replace(' ', '.')}@amity.edu`,
           department: 'Computer Science & Engineering',
           school: 'ASET',
           batch: batch,
           semester: semester,
-          section: section,
+          section: base.section,
           mobile: `+91${Math.floor(Math.random() * 9000000000) + 1000000000}`,
           createdAt: new Date(`202${2 + batchIndex}-07-01`)
         });
-        
-        studentId++;
-        rollNumber++;
-      }
-    });
-    rollNumber = 1; // Reset roll number for each batch
+      });
+    }
   });
 
   return students;
@@ -691,6 +1195,33 @@ export function initializeAllData() {
   
   LocalStorageService.saveCOOptions(department, allCOs);
   LocalStorageService.savePOOptions(department, allPOs);
+
+  // Create randomized CO-PO mappings (<=5%) for all 2022-26 courses
+  const randomCoPoMappings = [] as { id: string; coCode: string; poCode: string; percentage: number; courseId?: string; createdAt: Date }[];
+  const courses202226 = courseData.filter(c => c.batch === '2022-26');
+  courses202226.forEach((course, ci) => {
+    const cos = course.coOptions || [];
+    const pos = course.poOptions || [];
+    cos.forEach((co, i) => {
+      // Map each CO to 1-2 random POs with small percentages
+      const poIndices = Array.from(new Set([
+        Math.floor((ci + i + 1) % Math.max(1, pos.length)),
+        Math.floor((ci + i + 2) % Math.max(1, pos.length))
+      ]));
+      poIndices.forEach((pi, k) => {
+        const perc = Math.max(1, Math.floor(((ci + i + k + 3) * 7) % 5)); // 1..4%
+        randomCoPoMappings.push({
+          id: `init-copo-${course.id}-${co.coCode}-${pos[pi]?.poCode}-${k}`,
+          coCode: co.coCode,
+          poCode: pos[pi]?.poCode || 'PO1',
+          percentage: perc,
+          courseId: course.id,
+          createdAt: new Date()
+        });
+      });
+    });
+  });
+  LocalStorageService.saveCOPOMappings(randomCoPoMappings);
   
   // Save batch options
   const batches = ['2022-26', '2023-27', '2024-28', '2025-29'];

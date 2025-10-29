@@ -101,6 +101,8 @@ export interface COPOMapping {
   coCode: string;
   poCode: string;
   percentage: number; // Percentage of CO that maps to PO (0-100)
+  // Optional scoping to a course; when set, mapping applies only to that course
+  courseId?: string;
   createdAt: Date;
 }
 

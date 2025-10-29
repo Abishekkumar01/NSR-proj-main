@@ -13,9 +13,10 @@ interface StudentManagementProps {
   onUpdateStudent: (id: string, student: Partial<Student>) => Promise<void>;
   onDeleteStudent: (id: string) => Promise<void>;
   faculty?: Faculty[];
+  semesterMode?: boolean;
 }
 
-export function StudentManagement({ students, onAddStudent, onUpdateStudent, onDeleteStudent, faculty = [] }: StudentManagementProps) {
+export function StudentManagement({ students, onAddStudent, onUpdateStudent, onDeleteStudent, faculty = [], semesterMode = false }: StudentManagementProps) {
   const { user } = useAuth();
   // Normalize batch strings to the canonical "YYYY-YY" format for consistent display and storage
   const normalizeBatchDisplay = (value: string): string => {
@@ -58,11 +59,17 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
   const [skippedRows, setSkippedRows] = useState<any[]>([]);
   const [showSkipped, setShowSkipped] = useState(false);
   const [duplicateRows, setDuplicateRows] = useState<any[]>([]);
+  const [filterSemester, setFilterSemester] = useState<number | ''>(semesterMode ? 1 : '');
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
   const [isRemovingDuplicates, setIsRemovingDuplicates] = useState(false);
   const [showOutsideModal, setShowOutsideModal] = useState(false);
+  const [isBulkCopying, setIsBulkCopying] = useState(false);
+  const [bulkCopyMessage, setBulkCopyMessage] = useState('');
+  const [copyTargetSemester, setCopyTargetSemester] = useState<number>(2);
+  const [sortKey, setSortKey] = useState<'name' | 'enrollmentNumber' | ''>('');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   // Advanced filters (for admin only)
   const [filterSchoolId, setFilterSchoolId] = useState<string>('');
   const [filterDepartment, setFilterDepartment] = useState<string>('');
@@ -190,6 +197,9 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
       // Section filter (optional)
       if (filterSection && (student.section || '') !== filterSection) return false;
 
+      // Semester filter (optional)
+      if (filterSemester && Number(student.semester) !== Number(filterSemester)) return false;
+
       return true;
     });
 
@@ -199,7 +209,124 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
       student.rollNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
       student.department.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [facultyFilteredStudents, students, user, filterSchoolId, filterDepartment, filterBatch, filterSection, searchTerm]);
+  }, [facultyFilteredStudents, students, user, filterSchoolId, filterDepartment, filterBatch, filterSection, filterSemester, searchTerm]);
+
+  const displayStudents = useMemo(() => {
+    if (!sortKey) return filteredStudents;
+    const list = [...filteredStudents];
+    const compare = (a: any, b: any): number => {
+      if (sortKey === 'name') {
+        const na = String(a.name || '').toLowerCase();
+        const nb = String(b.name || '').toLowerCase();
+        return na.localeCompare(nb);
+      }
+      const ea = parseInt(String(a.enrollmentNumber || '').replace(/\D+/g, ''), 10) || 0;
+      const eb = parseInt(String(b.enrollmentNumber || '').replace(/\D+/g, ''), 10) || 0;
+      return ea - eb;
+    };
+    list.sort(compare);
+    if (sortDir === 'desc') list.reverse();
+    return list;
+  }, [filteredStudents, sortKey, sortDir]);
+
+  const toggleSort = (key: 'name' | 'enrollmentNumber') => {
+    if (sortKey !== key) {
+      setSortKey(key);
+      setSortDir('asc');
+    } else {
+      setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    }
+  };
+
+  const copyCurrentStudentsToOtherSemesters = async () => {
+    if (!semesterMode) return;
+    if (!filterBatch) {
+      setBulkCopyMessage('Select a batch first.');
+      return;
+    }
+    const currentSem = Number(filterSemester || 1);
+    const targets = [1,2,3,4,5,6,7,8].filter(s => s !== currentSem);
+    const list = filteredStudents;
+    if (list.length === 0) {
+      setBulkCopyMessage('No students in the current filter to copy.');
+      return;
+    }
+    setIsBulkCopying(true);
+    try {
+      let created = 0;
+      for (const targetSem of targets) {
+        for (const s of list) {
+          const exists = students.some(x => (x.enrollmentNumber || '').toLowerCase() === (s.enrollmentNumber || '').toLowerCase() && x.batch === filterBatch && Number(x.semester) === Number(targetSem));
+          if (exists) continue;
+          const payload = {
+            rollNumber: s.rollNumber,
+            name: s.name,
+            email: s.email || '',
+            department: s.department,
+            school: s.school,
+            batch: filterBatch,
+            semester: targetSem,
+            enrollmentNumber: s.enrollmentNumber,
+            section: s.section,
+            mobile: (s as any).mobile
+          } as Omit<Student, 'id' | 'createdAt'>;
+          await onAddStudent(payload);
+          created++;
+        }
+      }
+      setBulkCopyMessage(`Copied ${list.length} students to ${targets.length} semesters. Created ${created} records.`);
+    } catch (e) {
+      console.error(e);
+      setBulkCopyMessage('Failed to copy students.');
+    } finally {
+      setIsBulkCopying(false);
+    }
+  };
+
+  const copyCurrentStudentsToSemester = async (targetSem: number) => {
+    if (!semesterMode) return;
+    if (!filterBatch || !filterSemester) {
+      setBulkCopyMessage('Select batch and source semester first.');
+      return;
+    }
+    if (Number(filterSemester) === Number(targetSem)) {
+      setBulkCopyMessage('Source and target semesters are the same.');
+      return;
+    }
+    const list = filteredStudents;
+    if (list.length === 0) {
+      setBulkCopyMessage('No students in the current filter to copy.');
+      return;
+    }
+    setIsBulkCopying(true);
+    try {
+      let created = 0;
+      for (const s of list) {
+        const exists = students.some(x => (x.enrollmentNumber || '').toLowerCase() === (s.enrollmentNumber || '').toLowerCase() && x.batch === filterBatch && Number(x.semester) === Number(targetSem));
+        if (exists) continue;
+        const payload = {
+          rollNumber: s.rollNumber,
+          name: s.name,
+          email: s.email || '',
+          department: s.department,
+          school: s.school,
+          batch: filterBatch,
+          semester: targetSem,
+          enrollmentNumber: s.enrollmentNumber,
+          section: s.section,
+          mobile: (s as any).mobile
+        } as Omit<Student, 'id' | 'createdAt'>;
+        await onAddStudent(payload);
+        created++;
+      }
+      setBulkCopyMessage(`Copied ${list.length} students from Sem ${String(filterSemester)} to Sem ${targetSem}. Created ${created} records.`);
+    } catch (e) {
+      console.error(e);
+      setBulkCopyMessage('Failed to copy students.');
+    } finally {
+      setIsBulkCopying(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -455,20 +582,21 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
             const lastName = getField(row, 'last name');
             const nameFromSplit = [firstName, lastName].filter(Boolean).join(' ').trim();
             const name = getField(row, 'name') || nameFromSplit;
-            const department = getField(row, 'department');
+            const departmentRaw = getField(row, 'department');
             const batchRaw = getField(row, 'batch');
               const batch = normalizeBatch(batchRaw) || sheetBatchDefault;
             const mobile = getField(row, 'mobile');
             const email = getField(row, 'email');
             const section = getField(row, 'section');
 
+              const fallbackDepartment = departmentRaw || importDefaults.department || 'Computer Science & Engineering';
               const student = {
               rollNumber: String(idx + 1),
               name,
               email: email || '',
               enrollmentNumber,
-              section: section || importDefaults.section || '',
-              department: department || importDefaults.department,
+              section: section || importDefaults.section || '-',
+              department: fallbackDepartment,
                 batch: batch,
               semester: Number(importDefaults.semester || 1),
               mobile,
@@ -478,7 +606,7 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
             const errors: string[] = [];
             if (!student.name) errors.push('Name');
             if (!student.enrollmentNumber) errors.push('Enrollment No.');
-            if (!student.department) errors.push('Department');
+            // Do not block import on missing department; we auto-filled a sensible default
             if (!student.batch) errors.push('Batch');
               return { ...student, errors, __sheet: sheetName };
             })
@@ -599,7 +727,7 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
           <h2 className="text-3xl font-bold text-gray-900">Student Management</h2>
           <p className="text-gray-600 mt-2">Manage student profiles and academic information</p>
           <div className="mt-2 text-sm text-gray-600">
-            Total students loaded: {students.length} | Filtered: {filteredStudents.length}
+            Total students loaded: {new Set(students.map(s => s.rollNumber)).size} | Filtered: {new Set(filteredStudents.map(s => s.rollNumber)).size}
           </div>
           {selectedSchool && selectedDepartment && (
             <div className="mt-2 text-sm text-blue-600">
@@ -723,7 +851,7 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
         <div className="space-y-4">
           {/* Admin Filters */}
           {user?.role === 'admin' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
               {/* School Filter (Required) */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">School *</label>
@@ -801,6 +929,22 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
                   <option value="F">F</option>
                 </select>
               </div>
+
+              {/* Semester Filter (Optional) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Semester</label>
+                <select
+                  value={String(filterSemester)}
+                  onChange={(e) => setFilterSemester(e.target.value ? Number(e.target.value) : '')}
+                  disabled={!filterSchoolId}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm disabled:bg-gray-50 disabled:text-gray-500"
+                >
+                  <option value="">All Semesters</option>
+                  {[1,2,3,4,5,6,7,8].map(s => (
+                    <option key={`sem-${s}`} value={s}>{`Sem ${s}`}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           )}
 
@@ -845,12 +989,13 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
             const schoolName = schoolObj?.name || '';
             const inSchool = students.filter(s => (s.school || getSchoolFromDepartment(s.department)) === schoolName);
             const outsideSchool = students.filter(s => (s.school || getSchoolFromDepartment(s.department)) !== schoolName);
-            const countSchool = inSchool.length;
-            const countDepartment = filterDepartment ? inSchool.filter(s => s.department === filterDepartment).length : 0;
+            const uniq = (arr: Student[]) => new Set(arr.map(s => s.rollNumber)).size;
+            const countSchool = uniq(inSchool as any);
+            const countDepartment = filterDepartment ? uniq(inSchool.filter(s => s.department === filterDepartment) as any) : 0;
             const baseForBatch = filterDepartment ? inSchool.filter(s => s.department === filterDepartment) : inSchool;
-            const countBatch = filterBatch ? baseForBatch.filter(s => s.batch === filterBatch).length : 0;
+            const countBatch = filterBatch ? uniq(baseForBatch.filter(s => s.batch === filterBatch) as any) : 0;
             const baseForSection = filterBatch ? baseForBatch.filter(s => s.batch === filterBatch) : baseForBatch;
-            const countSection = filterSection ? baseForSection.filter(s => (s.section || '-') === filterSection).length : 0;
+            const countSection = filterSection ? uniq(baseForSection.filter(s => (s.section || '-') === filterSection) as any) : 0;
             return (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <div className="text-sm text-blue-800 flex items-center justify-between gap-2">
@@ -881,6 +1026,47 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
               </div>
             );
           })()}
+
+          {semesterMode && filterBatch && filterSemester && (
+            <div className="mt-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-gray-600">
+                  Copy these {filteredStudents.length} students in batch <strong>{filterBatch}</strong> from Sem {String(filterSemester)}.
+                </div>
+                <button
+                  type="button"
+                  onClick={copyCurrentStudentsToOtherSemesters}
+                  disabled={isBulkCopying || filteredStudents.length === 0}
+                  className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                >
+                  {isBulkCopying ? 'Copying...' : 'Copy to all other semesters'}
+                </button>
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="text-sm text-gray-700">Copy to semester</label>
+                <select
+                  value={String(copyTargetSemester)}
+                  onChange={(e) => setCopyTargetSemester(Number(e.target.value))}
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                >
+                  {[1,2,3,4,5,6,7,8].filter(s => Number(s) !== Number(filterSemester)).map(s => (
+                    <option key={`copysem-${s}`} value={s}>{`Sem ${s}`}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => copyCurrentStudentsToSemester(copyTargetSemester)}
+                  disabled={isBulkCopying || filteredStudents.length === 0}
+                  className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {isBulkCopying ? 'Copying...' : `Copy to Sem ${copyTargetSemester}`}
+                </button>
+              </div>
+            </div>
+          )}
+          {bulkCopyMessage && (
+            <div className="mt-2 text-xs text-blue-700">{bulkCopyMessage}</div>
+          )}
         </div>
       </div>
 
@@ -891,19 +1077,31 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Roll Number</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Name</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">
+                  <button type="button" onClick={() => toggleSort('name')} className="flex items-center gap-1">
+                    <span>Name</span>
+                    {sortKey === 'name' && <span>{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                  </button>
+                </th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Email</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Enrollment No.</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">
+                  <button type="button" onClick={() => toggleSort('enrollmentNumber')} className="flex items-center gap-1">
+                    <span>Enrollment No.</span>
+                    {sortKey === 'enrollmentNumber' && <span>{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                  </button>
+                </th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Section</th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Department</th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Mobile</th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Batch</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Semester</th>
+                {semesterMode && (
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Semester</th>
+                )}
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {filteredStudents.length === 0 ? (
+              {displayStudents.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-6 py-12 text-center">
                     <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
@@ -911,7 +1109,7 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
                   </td>
                 </tr>
               ) : (
-                filteredStudents.map((student, index) => (
+                displayStudents.map((student, index) => (
                   <tr key={student.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 text-sm font-medium text-gray-900">{index + 1}</td>
                     <td className="px-6 py-4 text-sm font-medium text-gray-900">{student.name}</td>
@@ -921,7 +1119,9 @@ export function StudentManagement({ students, onAddStudent, onUpdateStudent, onD
                     <td className="px-6 py-4 text-sm text-gray-900">{student.department}</td>
                     <td className="px-6 py-4 text-sm text-gray-900">{(student as any).mobile || '-'}</td>
                     <td className="px-6 py-4 text-sm text-gray-900">{normalizeBatchDisplay(student.batch)}</td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{student.semester}</td>
+                    {semesterMode && (
+                      <td className="px-6 py-4 text-sm text-gray-900">{student.semester}</td>
+                    )}
                     <td className="px-6 py-4 text-sm">
                       <div className="flex items-center gap-2">
                         <button

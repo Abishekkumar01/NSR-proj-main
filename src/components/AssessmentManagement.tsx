@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Edit2, Trash2, ClipboardList, Award } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, ClipboardList, Award, AlertTriangle } from 'lucide-react';
 import { Assessment, Course, GAMapping, COMapping, POMapping, Student } from '../types';
 import { schools } from '../data/schools';
 import { graduateAttributes } from '../data/graduateAttributes';
@@ -91,6 +91,14 @@ export function AssessmentManagement({
   const [endTermCO, setEndTermCO] = useState<Record<number, { marks: (number | null)[]; coSelections: string[][] }>>({});
   const [openCOSelectorIndex, setOpenCOSelectorIndex] = useState<Record<number, number | null>>({});
   // End term helper visibility removed
+
+  // Clear all assessments modal state
+  const [showClearAllModal, setShowClearAllModal] = useState(false);
+  
+  // Generate random assessments modal state
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState('');
 
   const ensureEndTermGrid = (assessmentIndex: number) => {
     setEndTermCO((prev) => {
@@ -353,20 +361,25 @@ export function AssessmentManagement({
         courseName: course.name
       });
       if (course.department) {
+        // Prefer course-specific CO options if present; otherwise fall back to department catalog
         const deptCOs = LocalStorageService.getCOOptions(course.department) || [];
-        setCoOptions(deptCOs);
+        const courseCOs = (course as any).coOptions || [];
+        const mergedCOs = (courseCOs.length > 0 ? courseCOs : deptCOs) as { coCode: string; coName: string }[];
+        setCoOptions(mergedCOs);
         const deptPOs = LocalStorageService.getPOOptions(course.department) || [];
         setPoOptions(deptPOs);
         
         // Auto-populate all COs and POs for the first assessment
         const updatedAssessments = formData.assessments.map((assessment, index) => {
           if (index === 0) {
-            // Auto-populate all COs with varied weightage
-            const coMappings: COMapping[] = deptCOs.map((co, coIndex) => ({
-              coCode: co.coCode,
-              coName: co.coName,
-              weightage: getVariedCOWeightage(courseId, coIndex, deptCOs.length, assessment.type)
-            }));
+            // For End-Term, do not prefill CO mappings (grid below will be used)
+            const coMappings: COMapping[] = assessment.type === 'End-Term'
+              ? []
+              : deptCOs.map((co, coIndex) => ({
+                  coCode: co.coCode,
+                  coName: co.coName,
+                  weightage: getVariedCOWeightage(courseId, coIndex, deptCOs.length, assessment.type)
+                }));
             
             // Auto-populate all POs with varied low weightage (4-12% each)
             const poMappings: POMapping[] = deptPOs.map((po, poIndex) => ({
@@ -400,19 +413,23 @@ export function AssessmentManagement({
       const course = courses.find(c => c.id === formData.courseId);
       if (course && course.department) {
         const deptCOs = LocalStorageService.getCOOptions(course.department) || [];
-        setCoOptions(deptCOs);
+        const courseCOs = (course as any).coOptions || [];
+        const mergedCOs = (courseCOs.length > 0 ? courseCOs : deptCOs) as { coCode: string; coName: string }[];
+        setCoOptions(mergedCOs);
         const deptPOs = LocalStorageService.getPOOptions(course.department) || [];
         setPoOptions(deptPOs);
         
         // Auto-populate COs and POs if they're empty
         const updatedAssessments = formData.assessments.map((assessment, index) => {
           if (assessment.coMapping.length === 0 && assessment.poMapping.length === 0) {
-            // Auto-populate all COs with varied weightage
-            const coMappings: COMapping[] = deptCOs.map((co, coIndex) => ({
-              coCode: co.coCode,
-              coName: co.coName,
-              weightage: getVariedCOWeightage(formData.courseId, coIndex, deptCOs.length, assessment.type)
-            }));
+            // For End-Term, do not prefill CO mappings (grid below will be used)
+            const coMappings: COMapping[] = assessment.type === 'End-Term'
+              ? []
+              : deptCOs.map((co, coIndex) => ({
+                  coCode: co.coCode,
+                  coName: co.coName,
+                  weightage: getVariedCOWeightage(formData.courseId, coIndex, deptCOs.length, assessment.type)
+                }));
             
             // Auto-populate all POs with varied low weightage (4-12% each)
             const poMappings: POMapping[] = deptPOs.map((po, poIndex) => ({
@@ -606,6 +623,289 @@ export function AssessmentManagement({
     }
   };
 
+  const handleClearAllAssessments = () => {
+    // Delete all assessments one by one
+    assessments.forEach(assessment => {
+      onDeleteAssessment(assessment.id);
+    });
+    setShowClearAllModal(false);
+  };
+
+  // Generate random COs for a course (max 5, unique)
+  const generateRandomCOs = (courseId: string, department: string): { coCode: string; coName: string }[] => {
+    const existingCOs = LocalStorageService.getCOOptions(department) || [];
+    const courseSpecificCOs: { coCode: string; coName: string }[] = [];
+    const usedCodes = new Set<string>();
+    
+    // Generate 3-5 random COs
+    const numCOs = Math.floor(Math.random() * 3) + 3; // 3-5 COs
+    
+    for (let i = 0; i < numCOs; i++) {
+      let coCode = `CO${i + 1}`;
+      let attempts = 0;
+      
+      // Ensure unique CO codes
+      while (usedCodes.has(coCode) && attempts < 10) {
+        coCode = `CO${Math.floor(Math.random() * 20) + 1}`;
+        attempts++;
+      }
+      
+      if (!usedCodes.has(coCode)) {
+        usedCodes.add(coCode);
+        courseSpecificCOs.push({
+          coCode,
+          coName: `Course Outcome ${i + 1} - ${courseId.slice(-3)}`
+        });
+      }
+    }
+    
+    return courseSpecificCOs;
+  };
+
+  // Generate common POs for department (5 POs for CSE)
+  const generateDepartmentPOs = (department: string): { poCode: string; poName: string }[] => {
+    const existingPOs = LocalStorageService.getPOOptions(department) || [];
+    
+    if (existingPOs.length >= 5) {
+      return existingPOs.slice(0, 5);
+    }
+    
+    const commonPOs = [
+      { poCode: 'PO1', poName: 'Engineering Knowledge' },
+      { poCode: 'PO2', poName: 'Problem Analysis' },
+      { poCode: 'PO3', poName: 'Design/Development of Solutions' },
+      { poCode: 'PO4', poName: 'Conduct Investigations' },
+      { poCode: 'PO5', poName: 'Modern Tool Usage' }
+    ];
+    
+    // Save POs for department
+    LocalStorageService.savePOOptions(department, commonPOs);
+    return commonPOs;
+  };
+
+  // Generate random CO-PO-GA mappings
+  const generateRandomMappings = (cos: { coCode: string; coName: string }[], pos: { poCode: string; poName: string }[], opts?: { assessmentType?: Assessment['type'] }) => {
+    const coMapping: COMapping[] = [];
+    const poMapping: POMapping[] = [];
+    const gaMapping: GAMapping[] = [];
+    
+    // Generate CO mappings with random weightages
+    cos.forEach(co => {
+      coMapping.push({
+        coCode: co.coCode,
+        coName: co.coName,
+        weightage: Math.floor(Math.random() * 20) + 10 // 10-30%
+      });
+    });
+    
+    // Select exactly 3 POs randomly for this course/assessment
+    const posPool = [...pos];
+    const pickedPOs: { poCode: string; poName: string }[] = [];
+    while (pickedPOs.length < 3 && posPool.length > 0) {
+      const idx = Math.floor(Math.random() * posPool.length);
+      pickedPOs.push(posPool.splice(idx, 1)[0]);
+    }
+    pickedPOs.forEach(po => {
+      poMapping.push({
+        poCode: po.poCode,
+        poName: po.poName,
+        weightage: Math.floor(Math.random() * 8) + 4 // 4-12%
+      });
+    });
+    
+    // Generate GA mappings with random weightages (select 3-5 GAs randomly)
+    const availableGAs = graduateAttributes.slice(); // Copy array
+    const maxGAs = 4; // cap at 4
+    const minGAs = 2;
+    const numGAs = Math.min(maxGAs, Math.max(minGAs, Math.floor(Math.random() * 3) + 2)); // 2-4, capped
+    const selectedGAs = [];
+    
+    for (let i = 0; i < numGAs && availableGAs.length > 0; i++) {
+      const randomIndex = Math.floor(Math.random() * availableGAs.length);
+      selectedGAs.push(availableGAs.splice(randomIndex, 1)[0]);
+    }
+    
+    selectedGAs.forEach(ga => {
+      gaMapping.push({
+        gaId: ga.id,
+        gaCode: ga.code,
+        gaName: ga.name,
+        weightage: Math.floor(Math.random() * 15) + 5 // 5-20%
+      });
+    });
+    
+    return { coMapping, poMapping, gaMapping };
+  };
+
+  const randomInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+  const distributeMarks = (total: number, parts: number, minPer: number, maxPer: number): number[] => {
+    // Simple randomized distribution ensuring each part within [minPer, maxPer]
+    const result: number[] = new Array(parts).fill(minPer);
+    let remaining = total - parts * minPer;
+    for (let i = 0; i < parts; i++) {
+      if (remaining <= 0) break;
+      const add = Math.min(remaining, maxPer - result[i], randomInt(0, Math.min(remaining, maxPer - result[i])));
+      result[i] += add;
+      remaining -= add;
+    }
+    // If still remaining due to caps, distribute one by one
+    let idx = 0;
+    while (remaining > 0) {
+      if (result[idx] < maxPer) {
+        result[idx] += 1;
+        remaining -= 1;
+      }
+      idx = (idx + 1) % parts;
+    }
+    return result;
+  };
+
+  const pickGAsForType = (assessmentType: Assessment['type']): typeof graduateAttributes => {
+    // Logical GA alignment by assessment type
+    switch (assessmentType) {
+      case 'Mid-Term':
+        return graduateAttributes.filter(g => ['GA1','GA2','GA4'].includes(g.code)); // knowledge, problem analysis, investigations
+      case 'End-Term':
+        return graduateAttributes.filter(g => ['GA1','GA2','GA3','GA4'].includes(g.code)); // add design
+      case 'Assignment':
+        return graduateAttributes.filter(g => ['GA3','GA10','GA12'].includes(g.code)); // design, communication, life-long learning
+      case 'Quiz':
+        return graduateAttributes.filter(g => ['GA1','GA2','GA5'].includes(g.code)); // knowledge, analysis, tools
+      case 'Lab':
+        return graduateAttributes.filter(g => ['GA4','GA5','GA10'].includes(g.code)); // investigations, tools, communication
+      case 'Attendance':
+        return graduateAttributes.filter(g => ['GA9','GA10','GA12'].includes(g.code)); // teamwork, communication, life-long
+      default:
+        return graduateAttributes;
+    }
+  };
+
+  const buildAssessmentsForCourse = (course: Course, cos: { coCode: string; coName: string }[], pos: { poCode: string; poName: string }[]) => {
+    // Fixed components: Attendance 5, Mid-Term 15, End-Term 50
+    const assessmentsToCreate: Array<{ type: Assessment['type']; maxMarks: number }> = [
+      { type: 'Attendance', maxMarks: 5 },
+      { type: 'Mid-Term', maxMarks: 15 },
+      { type: 'End-Term', maxMarks: 50 }
+    ];
+    // Remaining 30 marks across 3-5 assessments with 5-10 marks each
+    const remaining = 100 - (5 + 15 + 50); // 30
+    const extraCount = 3; // exactly 3 more assessments for predictability
+    const parts = distributeMarks(remaining, extraCount, 5, 10);
+    const extraTypes: Assessment['type'][] = ['Assignment','Quiz','Lab'];
+    parts.forEach((m, i) => {
+      assessmentsToCreate.push({ type: extraTypes[i] || 'Assignment', maxMarks: m });
+    });
+
+    // Build assessment payloads
+    return assessmentsToCreate.map(a => {
+      // Choose GA pool based on assessment type, then generate mappings (cap 4)
+      const gaPool = pickGAsForType(a.type);
+      const { coMapping, poMapping, gaMapping } = generateRandomMappings(cos, pos, { assessmentType: a.type });
+      // Replace GA mapping selection to prefer from gaPool
+      const maxGAs = Math.min(4, gaPool.length);
+      const chosenCount = Math.min(maxGAs, Math.max(2, randomInt(2, maxGAs)));
+      const poolCopy = [...gaPool];
+      const selected = [] as typeof gaPool;
+      for (let i = 0; i < chosenCount && poolCopy.length > 0; i++) {
+        const idx = Math.floor(Math.random() * poolCopy.length);
+        selected.push(poolCopy.splice(idx, 1)[0]);
+      }
+      const gaMapped: GAMapping[] = selected.map(g => ({ gaId: g.id, gaCode: g.code, gaName: g.name, weightage: randomInt(5, 20) }));
+
+      return {
+        courseId: course.id,
+        courseName: course.name,
+        type: a.type,
+        maxMarks: a.maxMarks,
+        weightage: 100,
+        gaMapping: gaMapped,
+        coMapping,
+        poMapping
+      } as Omit<Assessment, 'id' | 'createdAt'>;
+    });
+  };
+
+  const generateRandomAssessments = async () => {
+    setIsGenerating(true);
+    setGenerationProgress('Starting generation...');
+    
+    try {
+      const coursesToProcess = courses.filter(course => course.department);
+      let processed = 0;
+      
+      for (const course of coursesToProcess) {
+        setGenerationProgress(`Processing ${course.name} (${course.code})...`);
+
+        // Generate random COs for this course
+        const randomCOs = generateRandomCOs(course.id, course.department);
+
+        // Generate common POs for department
+        const departmentPOs = generateDepartmentPOs(course.department);
+
+        // Build full assessment set summing to 100 with constraints
+        const assessmentsForCourse = buildAssessmentsForCourse(course, randomCOs, departmentPOs);
+
+        for (const a of assessmentsForCourse) {
+          await onAddAssessment(a);
+          await new Promise(resolve => setTimeout(resolve, 20));
+        }
+
+        // Also persist course-scoped CO-PO mappings for Reports matrix
+        try {
+          const allCOs = new Set<string>();
+          const allPOs = new Set<string>();
+          assessmentsForCourse.forEach(a => {
+            (a.coMapping || []).forEach(co => allCOs.add(co.coCode));
+            (a.poMapping || []).forEach(po => allPOs.add(po.poCode));
+          });
+          const coList = Array.from(allCOs);
+          const poList = Array.from(allPOs);
+          const newMappings = [] as import('../types').COPOMapping[];
+          const percentagePerPO = poList.length > 0 ? Math.floor(100 / poList.length) : 0;
+          coList.forEach(coCode => {
+            poList.forEach(poCode => {
+              newMappings.push({
+                id: `${course.id}-${coCode}-${poCode}`,
+                coCode,
+                poCode,
+                percentage: percentagePerPO,
+                courseId: course.id,
+                createdAt: new Date()
+              });
+            });
+          });
+          // Merge into storage, replacing course-scoped entries
+          const existing = LocalStorageService.getCOPOMappings();
+          const filtered = existing.filter(m => m.courseId !== course.id);
+          LocalStorageService.saveCOPOMappings([...filtered, ...newMappings]);
+        } catch (e) {
+          console.warn('Failed to persist CO-PO mappings for course', course.id, e);
+        }
+
+        processed++;
+        setGenerationProgress(`Processed ${processed}/${coursesToProcess.length} courses`);
+
+        // Small delay to show progress between courses
+        await new Promise(resolve => setTimeout(resolve, 80));
+      }
+
+      setGenerationProgress(`Successfully generated assessments for ${processed} courses (each totaling 100 marks).`);
+      
+      // Close modal after 2 seconds
+      setTimeout(() => {
+        setShowGenerateModal(false);
+        setIsGenerating(false);
+        setGenerationProgress('');
+      }, 2000);
+      
+    } catch (error) {
+      setGenerationProgress('Error generating assessments. Please try again.');
+      console.error('Generation error:', error);
+      setIsGenerating(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -614,13 +914,29 @@ export function AssessmentManagement({
           <h2 className="text-3xl font-bold text-gray-900">Assessment Management</h2>
           <p className="text-gray-600 mt-2">Create and manage course assessments with mappings</p>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-        >
-          <Plus className="w-5 h-5" />
-          Add Assessment
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={() => setShowGenerateModal(true)}
+            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+          >
+            <Award className="w-5 h-5" />
+            Generate Random Assessments
+          </button>
+          <button
+            onClick={() => setShowClearAllModal(true)}
+            className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+          >
+            <Trash2 className="w-5 h-5" />
+            Clear All Assessments
+          </button>
+          <button
+            onClick={() => setShowModal(true)}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+          >
+            <Plus className="w-5 h-5" />
+            Add Assessment
+          </button>
+        </div>
       </div>
 
       {/* Filters and Search */}
@@ -1020,13 +1336,15 @@ export function AssessmentManagement({
                                 </p>
                               )}
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => addCOMapping(assessmentIndex)}
-                              className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                            >
-                              + Add CO Mapping
-                            </button>
+                            {assessment.type !== 'End-Term' && (
+                              <button
+                                type="button"
+                                onClick={() => addCOMapping(assessmentIndex)}
+                                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                              >
+                                + Add CO Mapping
+                              </button>
+                            )}
                           </div>
 
                           {/* End-Term single-row grid (only visible when End-Term) */}
@@ -1126,6 +1444,7 @@ export function AssessmentManagement({
                             </div>
                           )}
 
+                          {assessment.type !== 'End-Term' && (
                           <div className="space-y-3">
                             {assessment.coMapping.map((mapping, mappingIndex) => (
                               <div key={mappingIndex} className="bg-white p-3 rounded-lg border">
@@ -1175,6 +1494,7 @@ export function AssessmentManagement({
                               </div>
                             ))}
                           </div>
+                          )}
                         </div>
 
                         {/* PO Mapping */}
@@ -1270,6 +1590,126 @@ export function AssessmentManagement({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Generate Random Assessments Modal */}
+      {showGenerateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg w-full max-w-2xl mx-4">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <Award className="w-6 h-6 text-green-600" />
+                <h3 className="text-lg font-semibold text-gray-900">Generate Random Assessments</h3>
+              </div>
+            </div>
+            <div className="p-6">
+              <div className="space-y-4">
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-green-800 mb-2">What will be generated:</h4>
+                  <ul className="text-sm text-green-700 space-y-1">
+                    <li>• End-Term exam assessments for all courses</li>
+                    <li>• Random COs (3-5 per course, unique)</li>
+                    <li>• Common POs per department (5 POs for CSE)</li>
+                    <li>• Random GAs (3-5 per assessment)</li>
+                    <li>• Random CO-PO-GA mappings with weightages</li>
+                    <li>• Max marks: 50, Weightage: 100%</li>
+                  </ul>
+                </div>
+                
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-blue-800 mb-2">Department POs (Common):</h4>
+                  <ul className="text-sm text-blue-700 space-y-1">
+                    <li>• PO1: Engineering Knowledge</li>
+                    <li>• PO2: Problem Analysis</li>
+                    <li>• PO3: Design/Development of Solutions</li>
+                    <li>• PO4: Conduct Investigations</li>
+                    <li>• PO5: Modern Tool Usage</li>
+                  </ul>
+                </div>
+                
+                {generationProgress && (
+                  <div className={`p-3 rounded-lg ${isGenerating ? 'bg-blue-50 text-blue-700' : 'bg-green-50 text-green-700'}`}>
+                    <div className="flex items-center gap-2">
+                      {isGenerating && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>}
+                      <span className="text-sm font-medium">{generationProgress}</span>
+                    </div>
+                  </div>
+                )}
+                
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-yellow-800 mb-2">GA Weightages:</h4>
+                  <p className="text-sm text-yellow-700">
+                    Random GA mappings with 5-20% weightages will be generated for each assessment.
+                  </p>
+                </div>
+                
+                <div className="text-sm text-gray-600">
+                  <strong>Note:</strong> This will create End-Term assessments for {courses.filter(c => c.department).length} courses. 
+                  Each course will have unique COs, random GAs, but share department POs.
+                </div>
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                onClick={() => setShowGenerateModal(false)}
+                disabled={isGenerating}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={generateRandomAssessments}
+                disabled={isGenerating || courses.filter(c => c.department).length === 0}
+                className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${
+                  isGenerating || courses.filter(c => c.department).length === 0
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-green-600 text-white hover:bg-green-700'
+                }`}
+              >
+                {isGenerating && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>}
+                {isGenerating ? 'Generating...' : 'Generate Assessments'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear All Assessments Confirmation Modal */}
+      {showClearAllModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg w-full max-w-md mx-4">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+                <h3 className="text-lg font-semibold text-gray-900">Clear All Assessments</h3>
+              </div>
+            </div>
+            <div className="p-6">
+              <p className="text-gray-700 mb-4">
+                Are you sure you want to delete all {assessments.length} assessments? This action cannot be undone.
+              </p>
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-sm text-red-700">
+                  <strong>Warning:</strong> This will permanently remove all assessment data including GA, CO, and PO mappings.
+                </p>
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                onClick={() => setShowClearAllModal(false)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleClearAllAssessments}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Delete All Assessments
+              </button>
+            </div>
           </div>
         </div>
       )}

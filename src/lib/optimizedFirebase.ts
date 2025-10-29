@@ -1,22 +1,8 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, query, where, getDocs, limit, orderBy, startAfter, DocumentSnapshot } from 'firebase/firestore';
+import { signInWithEmailAndPassword, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { doc, setDoc, collection, getDocs, deleteDoc, query, limit } from 'firebase/firestore';
 import { LocalStorageService } from './localStorage';
-
-// Firebase configuration
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'demo_api_key',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'demo.firebaseapp.com',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'demo-project',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'demo.appspot.com',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '1234567890',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:1234567890:web:abcdef123456'
-};
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+// Use the single shared Firebase app/config to avoid environment mismatches
+import { auth, db } from './firebase';
 
 // Cache for reducing Firebase reads
 const cache = new Map<string, { data: any; timestamp: number; ttl: number }>();
@@ -216,6 +202,52 @@ export class OptimizedFirebaseService {
     const existingData = this.getLocalData(collectionName);
     const filtered = existingData.filter(item => item.id !== id);
     this.saveLocalData(collectionName, filtered);
+  }
+
+  // Danger: Delete entire collection from Firebase (paged)
+  private async deleteEntireCollection(collectionName: string, pageSize: number = 300): Promise<number> {
+    const firebaseCollectionName = collectionName === 'studentAssessments' ? 'student_assessments' : collectionName;
+    let deleted = 0;
+    while (true) {
+      const snapshot = await getDocs(query(collection(db, firebaseCollectionName), limit(pageSize)));
+      if (snapshot.empty) break;
+      await Promise.all(snapshot.docs.map(d => deleteDoc(doc(db, firebaseCollectionName, d.id))));
+      deleted += snapshot.docs.length;
+      if (snapshot.size < pageSize) {
+        const check = await getDocs(query(collection(db, firebaseCollectionName), limit(1)));
+        if (check.empty) break;
+      }
+    }
+    return deleted;
+  }
+
+  // Clear all remote (Firebase) and local data
+  async clearAllDataEverywhere(): Promise<void> {
+    // Delete Firebase collections first
+    const collections = ['students', 'faculty', 'courses', 'assessments', 'studentAssessments'];
+    for (const c of collections) {
+      try {
+        await this.deleteEntireCollection(c);
+      } catch (e) {
+        console.error(`Failed clearing collection ${c}`, e);
+      }
+    }
+    // Clear local storage and cache
+    this.clearAllData();
+  }
+
+  // Clear only Firebase data (leave local storage intact)
+  async clearAllFirebaseData(): Promise<void> {
+    const collections = ['students', 'faculty', 'courses', 'assessments', 'studentAssessments'];
+    for (const c of collections) {
+      try {
+        await this.deleteEntireCollection(c);
+      } catch (e) {
+        console.error(`Failed clearing collection ${c}`, e);
+      }
+    }
+    // Invalidate cache so next load reflects emptiness
+    this.clearCache();
   }
 
   private async deleteFromFirebaseAsync(collectionName: string, id: string): Promise<void> {

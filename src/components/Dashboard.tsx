@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Target, GraduationCap, TrendingUp } from 'lucide-react';
+import { Users, Target, GraduationCap, TrendingUp, BookOpen } from 'lucide-react';
 import { Student, Course, Assessment, StudentAssessment } from '../types';
 
 interface DashboardProps {
@@ -28,6 +28,14 @@ export function Dashboard({ students, courses, assessments, studentAssessments =
       color: 'bg-blue-500',
       description: 'Students in the system',
       onClick: () => onPageChange?.('students')
+    },
+    {
+      title: 'Total Courses',
+      value: totalCourses.toLocaleString(),
+      icon: BookOpen,
+      color: 'bg-green-500',
+      description: 'Courses offered',
+      onClick: () => onPageChange?.('courses')
     },
     {
       title: 'Total Assessments',
@@ -98,6 +106,13 @@ export function Dashboard({ students, courses, assessments, studentAssessments =
           >
             <Users className="w-5 h-5 text-blue-600" />
             <span className="text-blue-800 font-medium">Manage Students</span>
+          </button>
+          <button
+            onClick={() => onPageChange?.('courses')}
+            className="flex items-center gap-3 p-4 bg-green-50 rounded-lg hover:bg-green-100 transition-colors"
+          >
+            <BookOpen className="w-5 h-5 text-green-600" />
+            <span className="text-green-800 font-medium">Manage Courses</span>
           </button>
           <button
             onClick={() => onPageChange?.('assessments')}

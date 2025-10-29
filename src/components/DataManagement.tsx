@@ -124,6 +124,28 @@ export function DataManagement() {
     }
   };
 
+  const handleClearAllEverywhere = async () => {
+    if (!window.confirm('This will delete ALL data from Firebase and local storage. This cannot be undone. Proceed?')) return;
+    try {
+      await optimizedFirebase.clearAllDataEverywhere();
+      showMessage('success', 'All Firebase and local data cleared');
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (e) {
+      showMessage('error', 'Failed to clear all data');
+    }
+  };
+
+  const handleClearAllFirebase = async () => {
+    if (!window.confirm('This will delete ALL data from Firebase (students, faculty, courses, assessments, student assessments). Local browser data will remain. Proceed?')) return;
+    try {
+      await optimizedFirebase.clearAllFirebaseData();
+      showMessage('success', 'All Firebase data cleared');
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (e) {
+      showMessage('error', 'Failed to clear Firebase data');
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -247,7 +269,7 @@ export function DataManagement() {
           </button>
         </div>
 
-        {/* Clear Data */}
+        {/* Clear Data (Local only) */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center gap-3 mb-4">
             <Trash2 className="w-6 h-6 text-red-600" />
@@ -261,23 +283,48 @@ export function DataManagement() {
             className="w-full bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
           >
             <Trash2 className="w-4 h-4" />
-            Clear All Data
+            Clear Local Data
           </button>
         </div>
 
-        {/* Danger Zone: Delete ALL students */}
+        {/* Danger Zone: Clear ALL Firebase Data */}
         <div className="bg-white rounded-xl shadow-sm border border-red-200 p-6">
           <div className="flex items-center gap-3 mb-4">
             <Trash2 className="w-6 h-6 text-red-600" />
-            <h3 className="font-semibold text-gray-900">Danger: Delete ALL Students (Firebase)</h3>
+            <h3 className="font-semibold text-gray-900">Danger: Delete ALL Firebase Data</h3>
           </div>
-          <p className="text-sm text-gray-600 mb-4">Irreversible. Deletes all documents in the students collection.</p>
+          <p className="text-sm text-gray-600 mb-4">Irreversible. Deletes all documents in students, faculty, courses, assessments, and student assessments.</p>
+          <div className="grid grid-cols-1 gap-3">
+            <button
+              onClick={handleClearAllFirebase}
+              className="w-full bg-red-700 text-white px-4 py-2 rounded-lg hover:bg-red-800 transition-colors flex items-center justify-center gap-2"
+            >
+              <Trash2 className="w-4 h-4" />
+              Clear Firebase Data
+            </button>
+            <button
+              onClick={handleDeleteAllStudents}
+              className="w-full bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete ONLY Students (legacy)
+            </button>
+          </div>
+        </div>
+
+        {/* Danger Zone: Clear EVERYTHING (Firebase + Local) */}
+        <div className="bg-white rounded-xl shadow-sm border border-red-200 p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <Trash2 className="w-6 h-6 text-red-700" />
+            <h3 className="font-semibold text-gray-900">Danger: Delete ALL Data (Firebase + Local)</h3>
+          </div>
+          <p className="text-sm text-gray-600 mb-4">Destroys all collections in Firebase and clears browser storage.</p>
           <button
-            onClick={handleDeleteAllStudents}
-            className="w-full bg-red-700 text-white px-4 py-2 rounded-lg hover:bg-red-800 transition-colors flex items-center justify-center gap-2"
+            onClick={handleClearAllEverywhere}
+            className="w-full bg-red-800 text-white px-4 py-2 rounded-lg hover:bg-red-900 transition-colors flex items-center justify-center gap-2"
           >
             <Trash2 className="w-4 h-4" />
-            Delete ALL Students
+            Delete EVERYTHING
           </button>
         </div>
       </div>
